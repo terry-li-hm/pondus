@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pondus"
+version = "0.2.0"
+description = "Opinionated AI model benchmark aggregator — install via cargo: cargo install pondus"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Terry Li" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/terry-li-hm/pondus"
+Repository = "https://github.com/terry-li-hm/pondus"
+"crates.io" = "https://crates.io/crates/pondus"
