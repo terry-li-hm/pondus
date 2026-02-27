@@ -278,6 +278,8 @@ fn extract_model_scores(text: &str) -> Vec<(String, f64)> {
             .collect::<Vec<_>>()
             .join(" ");
 
+        // Strip trailing asterisks (footnote artifacts from accessibility tree)
+        let name = name.trim_end_matches('*').trim().to_string();
         if name.len() >= 2 && name.chars().any(|c| c.is_ascii_alphabetic()) {
             results.push((name, score));
         }

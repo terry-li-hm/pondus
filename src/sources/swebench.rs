@@ -89,8 +89,24 @@ fn parse_scores(data: &serde_json::Value) -> Vec<ModelScore> {
         }
     }
 
+    // Deduplicate: keep highest resolved_rate per model name
+    let mut best_by_name: HashMap<String, ModelScore> = HashMap::new();
+    for score in scores {
+        let rate = get_float(&score.metrics, "resolved_rate");
+        best_by_name
+            .entry(score.source_model_name.clone())
+            .and_modify(|existing| {
+                if rate > get_float(&existing.metrics, "resolved_rate") {
+                    *existing = score.clone();
+                }
+            })
+            .or_insert(score);
+    }
+
+    let mut deduped: Vec<ModelScore> = best_by_name.into_values().collect();
+
     // Sort by resolved_rate descending, assign ranks
-    scores.sort_by(|a, b| {
+    deduped.sort_by(|a, b| {
         let a_rate = get_float(&a.metrics, "resolved_rate");
         let b_rate = get_float(&b.metrics, "resolved_rate");
         b_rate
@@ -98,11 +114,11 @@ fn parse_scores(data: &serde_json::Value) -> Vec<ModelScore> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    for (i, score) in scores.iter_mut().enumerate() {
+    for (i, score) in deduped.iter_mut().enumerate() {
         score.rank = Some((i + 1) as u32);
     }
 
-    scores
+    deduped
 }
 
 fn extract_model_score(result: &serde_json::Value) -> Option<ModelScore> {
