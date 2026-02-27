@@ -287,10 +287,10 @@ All subcommands working, output formats complete.
 
 ### Phase 6: Open-Source Release
 
-- [ ] README.md — installation, usage, source list, contributing guide for alias map PRs
-- [ ] LICENSE (MIT, already set in Cargo.toml)
-- [ ] GitHub Actions CI (cargo test, cargo clippy, cargo fmt)
-- [ ] Seed `models.toml` with current frontier models (~20 models)
+- [x] README.md — installation, usage, source list, contributing guide for alias map PRs
+- [x] LICENSE (MIT, already set in Cargo.toml)
+- [x] GitHub Actions CI (cargo test, cargo clippy, cargo fmt)
+- [x] Seed `models.toml` with current frontier models (~25 models)
 - [ ] `cargo publish` real version (0.2.0 — 0.1.0 was the placeholder)
 - [ ] Update PyPI placeholder or remove it (Rust-only distribution)
 
