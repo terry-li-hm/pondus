@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-const AIDER_URL: &str =
-    "https://raw.githubusercontent.com/Aider-AI/aider/main/aider/website/_data/polyglot_leaderboard.yml";
+const AIDER_URL: &str = "https://raw.githubusercontent.com/Aider-AI/aider/main/aider/website/_data/polyglot_leaderboard.yml";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AiderEntry {
@@ -45,7 +44,9 @@ impl Source for Aider {
             .timeout(Duration::from_secs(30))
             .build()
             .context("Failed to build HTTP client")?;
-        let response = client.get(AIDER_URL).send()
+        let response = client
+            .get(AIDER_URL)
+            .send()
             .context("Failed to fetch Aider leaderboard")?;
 
         if !response.status().is_success() {
@@ -60,8 +61,8 @@ impl Source for Aider {
         let yaml_text = response.text().context("Failed to read Aider response")?;
 
         // Parse YAML into entries
-        let entries: Vec<AiderEntry> = serde_yaml::from_str(&yaml_text)
-            .context("Failed to parse Aider YAML")?;
+        let entries: Vec<AiderEntry> =
+            serde_yaml::from_str(&yaml_text).context("Failed to parse Aider YAML")?;
 
         // Convert to JSON Value for caching
         let data = serde_json::to_value(&entries)?;
@@ -98,7 +99,10 @@ fn parse_scores(data: &serde_json::Value) -> Vec<ModelScore> {
             metrics.insert("cost".into(), MetricValue::Float(cost));
         }
 
-        if let Some(wf) = entry.get("percent_cases_well_formed").and_then(|v| v.as_f64()) {
+        if let Some(wf) = entry
+            .get("percent_cases_well_formed")
+            .and_then(|v| v.as_f64())
+        {
             metrics.insert("percent_cases_well_formed".into(), MetricValue::Float(wf));
         }
 
@@ -114,7 +118,9 @@ fn parse_scores(data: &serde_json::Value) -> Vec<ModelScore> {
     scores.sort_by(|a, b| {
         let a_rate = get_float(&a.metrics, "pass_rate_1");
         let b_rate = get_float(&b.metrics, "pass_rate_1");
-        b_rate.partial_cmp(&a_rate).unwrap_or(std::cmp::Ordering::Equal)
+        b_rate
+            .partial_cmp(&a_rate)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     for (i, score) in scores.iter_mut().enumerate() {

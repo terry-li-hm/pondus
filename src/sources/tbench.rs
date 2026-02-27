@@ -48,7 +48,8 @@ impl Source for TerminalBench {
             });
         }
 
-        let data: serde_json::Value = response.json()
+        let data: serde_json::Value = response
+            .json()
             .context("Failed to parse Terminal-Bench metadata")?;
 
         // Extract model/agent names from file paths

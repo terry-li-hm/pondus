@@ -31,7 +31,9 @@ impl Source for SweBench {
             .timeout(Duration::from_secs(30))
             .build()
             .context("Failed to build HTTP client")?;
-        let response = client.get(url).send()
+        let response = client
+            .get(url)
+            .send()
             .context("Failed to fetch SWE-bench leaderboard data")?;
 
         if !response.status().is_success() {
@@ -43,8 +45,7 @@ impl Source for SweBench {
             });
         }
 
-        let data: serde_json::Value = response.json()
-            .context("Failed to parse SWE-bench JSON")?;
+        let data: serde_json::Value = response.json().context("Failed to parse SWE-bench JSON")?;
 
         // Cache the raw response
         cache.set("swebench", &data)?;
@@ -92,7 +93,9 @@ fn parse_scores(data: &serde_json::Value) -> Vec<ModelScore> {
     scores.sort_by(|a, b| {
         let a_rate = get_float(&a.metrics, "resolved_rate");
         let b_rate = get_float(&b.metrics, "resolved_rate");
-        b_rate.partial_cmp(&a_rate).unwrap_or(std::cmp::Ordering::Equal)
+        b_rate
+            .partial_cmp(&a_rate)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     for (i, score) in scores.iter_mut().enumerate() {

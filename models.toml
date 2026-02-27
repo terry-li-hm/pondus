@@ -79,10 +79,126 @@ aliases = [
   "DeepSeek-R1",
 ]
 
+[claude-haiku-4_5]
+canonical = "claude-haiku-4.5"
+aliases = [
+  "Claude Haiku 4.5",
+  "claude-haiku-4-5",
+  "anthropic/claude-haiku-4.5",
+  "Haiku 4.5",
+]
+
+[claude-sonnet-3_5]
+canonical = "claude-sonnet-3.5"
+aliases = [
+  "Claude 3.5 Sonnet",
+  "claude-3-5-sonnet-20241022",
+  "claude-3.5-sonnet",
+  "Sonnet 3.5",
+]
+
+[gpt-4o]
+canonical = "gpt-4o"
+aliases = [
+  "GPT-4o",
+  "gpt-4o-2024-11-20",
+  "openai/gpt-4o",
+  "GPT 4o",
+]
+
+[gpt-o3]
+canonical = "o3"
+aliases = [
+  "o3",
+  "OpenAI o3",
+  "openai/o3",
+]
+
+[gpt-o4-mini]
+canonical = "o4-mini"
+aliases = [
+  "o4-mini",
+  "OpenAI o4-mini",
+  "openai/o4-mini",
+]
+
+[gemini-3-flash]
+canonical = "gemini-3-flash"
+aliases = [
+  "Gemini 3 Flash",
+  "Gemini 3 Flash Preview",
+  "gemini-3-flash-preview",
+  "google/gemini-3-flash",
+]
+
+[gemini-2_5-pro]
+canonical = "gemini-2.5-pro"
+aliases = [
+  "Gemini 2.5 Pro",
+  "gemini-2.5-pro-preview",
+  "google/gemini-2.5-pro",
+]
+
+[deepseek-v3]
+canonical = "deepseek-v3"
+aliases = [
+  "DeepSeek V3",
+  "deepseek/deepseek-v3",
+  "DeepSeek-V3",
+]
+
 [grok-4]
 canonical = "grok-4"
 aliases = [
   "Grok 4",
   "xai/grok-4",
   "Grok-4",
+]
+
+[grok-3]
+canonical = "grok-3"
+aliases = [
+  "Grok 3",
+  "xai/grok-3",
+  "Grok-3",
+]
+
+[llama-4-maverick]
+canonical = "llama-4-maverick"
+aliases = [
+  "Llama 4 Maverick",
+  "meta-llama/llama-4-maverick",
+  "Llama-4-Maverick",
+]
+
+[llama-4-scout]
+canonical = "llama-4-scout"
+aliases = [
+  "Llama 4 Scout",
+  "meta-llama/llama-4-scout",
+  "Llama-4-Scout",
+]
+
+[qwen-3]
+canonical = "qwen-3"
+aliases = [
+  "Qwen 3",
+  "Qwen3",
+  "qwen/qwen-3",
+]
+
+[mistral-large]
+canonical = "mistral-large"
+aliases = [
+  "Mistral Large",
+  "mistral/mistral-large",
+  "Mistral Large 2",
+]
+
+[claude-code]
+canonical = "claude-code"
+aliases = [
+  "Claude Code",
+  "claude-code-agent",
+  "Anthropic Claude Code",
 ]

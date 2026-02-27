@@ -21,7 +21,9 @@ impl Source for Seal {
 
         let agent_browser = config.agent_browser_path();
 
-        if let Err(err) = run_agent_browser(agent_browser, &["open", "https://scale.com/leaderboard"]) {
+        if let Err(err) =
+            run_agent_browser(agent_browser, &["open", "https://scale.com/leaderboard"])
+        {
             return Ok(map_command_error(self.name(), "open", err));
         }
 
@@ -40,15 +42,14 @@ impl Source for Seal {
             return Ok(SourceResult {
                 source: self.name().into(),
                 fetched_at: Some(Utc::now()),
-                status: SourceStatus::Error("Failed to parse any model scores from SEAL page output".into()),
+                status: SourceStatus::Error(
+                    "Failed to parse any model scores from SEAL page output".into(),
+                ),
                 scores: vec![],
             });
         }
 
-        parsed.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        parsed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let cached_rows: Vec<serde_json::Value> = parsed
             .iter()
@@ -91,10 +92,7 @@ impl Seal {
             })
             .unwrap_or_default();
 
-        rows.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let scores = rows
             .into_iter()
@@ -222,7 +220,12 @@ fn parse_line(line: &str) -> Option<(String, f64)> {
         .iter()
         .rev()
         .find(|(_, v)| (0.0..=100.0).contains(v))
-        .or_else(|| numeric_positions.iter().rev().find(|(_, v)| (0.0..=10_000.0).contains(v)))?;
+        .or_else(|| {
+            numeric_positions
+                .iter()
+                .rev()
+                .find(|(_, v)| (0.0..=10_000.0).contains(v))
+        })?;
 
     let score_idx = score_idx_and_val.0;
     let score = score_idx_and_val.1;
@@ -300,7 +303,5 @@ fn is_likely_model_name(name: &str) -> bool {
 }
 
 fn normalize_model_name(name: &str) -> String {
-    name.to_lowercase()
-        .replace(' ', "-")
-        .replace('_', "-")
+    name.to_lowercase().replace([' ', '_'], "-")
 }

@@ -39,8 +39,7 @@ impl Cache {
     }
 
     pub fn set(&self, source: &str, data: &serde_json::Value) -> Result<()> {
-        fs::create_dir_all(&self.dir)
-            .context("Failed to create cache directory")?;
+        fs::create_dir_all(&self.dir).context("Failed to create cache directory")?;
 
         let entry = CacheEntry {
             fetched_at: Utc::now(),

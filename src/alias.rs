@@ -64,10 +64,7 @@ impl AliasMap {
     /// Returns the input lowercased if no alias match found.
     pub fn resolve(&self, name: &str) -> String {
         let lower = name.to_lowercase();
-        self.to_canonical
-            .get(&lower)
-            .cloned()
-            .unwrap_or(lower)
+        self.to_canonical.get(&lower).cloned().unwrap_or(lower)
     }
 
     /// Check if a source-specific model name matches a canonical name.

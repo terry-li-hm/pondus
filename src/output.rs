@@ -151,7 +151,7 @@ fn render_markdown(output: &PondusOutput) -> Result<String> {
         let mut columns: Vec<String> = vec!["Rank".to_string(), "Model".to_string()];
         columns.extend(all_metrics.clone());
 
-        let header: String = columns.iter().cloned().collect::<Vec<_>>().join(" | ");
+        let header: String = columns.to_vec().join(" | ");
         result.push_str(&format!("| {} |\n", header));
 
         let separator: String = columns

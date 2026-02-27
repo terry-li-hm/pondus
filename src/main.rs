@@ -16,7 +16,11 @@ use output::OutputFormat;
 use sources::Source;
 
 #[derive(Parser)]
-#[command(name = "pondus", version, about = "Opinionated AI model benchmark aggregator")]
+#[command(
+    name = "pondus",
+    version,
+    about = "Opinionated AI model benchmark aggregator"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

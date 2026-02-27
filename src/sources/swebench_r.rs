@@ -44,16 +44,15 @@ impl Source for SweRebench {
             return Ok(SourceResult {
                 source: self.name().into(),
                 fetched_at: Some(Utc::now()),
-                status: SourceStatus::Error("Failed to parse any model scores from SWE-rebench page output".into()),
+                status: SourceStatus::Error(
+                    "Failed to parse any model scores from SWE-rebench page output".into(),
+                ),
                 scores: vec![],
             });
         }
 
         // Sort by score descending
-        parsed.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        parsed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Cache the parsed data
         let cached_rows: Vec<serde_json::Value> = parsed
@@ -98,10 +97,7 @@ impl SweRebench {
             .unwrap_or_default();
 
         // Ensure sorted by score
-        rows.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let scores = rows
             .into_iter()
@@ -312,7 +308,15 @@ fn is_likely_model_name(name: &str) -> bool {
     }
 
     let lower = name.to_lowercase();
-    let banned = ["overall", "composite", "score", "rank", "model", "resolved", "rate"];
+    let banned = [
+        "overall",
+        "composite",
+        "score",
+        "rank",
+        "model",
+        "resolved",
+        "rate",
+    ];
     if banned.iter().any(|word| lower == *word) {
         return false;
     }
@@ -321,7 +325,5 @@ fn is_likely_model_name(name: &str) -> bool {
 }
 
 fn normalize_model_name(name: &str) -> String {
-    name.to_lowercase()
-        .replace(' ', "-")
-        .replace('_', "-")
+    name.to_lowercase().replace([' ', '_'], "-")
 }

@@ -57,72 +57,80 @@ impl Arena {
     ) -> SourceResult {
         let mut scores = Vec::new();
 
-        // The JSON structure is: { "20240527": { "text": { "full_old": { ... }, "overall": { ... } } }, ... }
-        // We want to use the latest date's "overall" category
-        if let Some(obj) = data.as_object() {
-            // Get the latest date key (they appear to be date strings in YYYYMMDD format)
-            let latest_date = obj
-                .keys()
-                .max_by(|a, b| a.cmp(b)); // String comparison works for YYYYMMDD format
+        // JSON structure: { "YYYYMMDD": { "text": { "overall": { model: elo, ... } } } }
+        let obj = match data.as_object() {
+            Some(o) => o,
+            None => {
+                return SourceResult {
+                    source: self.name().into(),
+                    fetched_at,
+                    status,
+                    scores,
+                };
+            }
+        };
 
-            if let Some(date_key) = latest_date {
-                if let Some(date_data) = obj.get(date_key) {
-                    if let Some(text_data) = date_data.get("text") {
-                        // Try to use "overall" category, fall back to "full_old" if not available
-                        let category = if text_data.get("overall").is_some() {
-                            "overall"
-                        } else if text_data.get("full_old").is_some() {
-                            "full_old"
-                        } else {
-                            // Try to use the first available category
-                            if let Some(first_category) = text_data.as_object().and_then(|o| o.keys().next()) {
-                                first_category.as_str()
-                            } else {
-                                return SourceResult {
-                                    source: self.name().into(),
-                                    fetched_at,
-                                    status: SourceStatus::Error("No valid categories found".into()),
-                                    scores: vec![],
-                                };
-                            }
-                        };
+        // Get the latest date key (YYYYMMDD string comparison works)
+        let text_data = match obj
+            .keys()
+            .max()
+            .and_then(|k| obj.get(k))
+            .and_then(|d| d.get("text"))
+        {
+            Some(t) => t,
+            None => {
+                return SourceResult {
+                    source: self.name().into(),
+                    fetched_at,
+                    status,
+                    scores,
+                };
+            }
+        };
 
-                        if let Some(category_data) = text_data.get(category) {
-                            if let Some(models_obj) = category_data.as_object() {
-                                // Extract model names and ELO scores
-                                let mut ranked_models: Vec<(String, f64)> = models_obj
-                                    .iter()
-                                    .filter_map(|(model_name, score_value)| {
-                                        score_value.as_f64().map(|score| (model_name.clone(), score))
-                                    })
-                                    .collect();
+        // Try "overall" category, fall back to "full_old", then first available
+        let category = if text_data.get("overall").is_some() {
+            "overall"
+        } else if text_data.get("full_old").is_some() {
+            "full_old"
+        } else if let Some(first_category) = text_data.as_object().and_then(|o| o.keys().next()) {
+            first_category.as_str()
+        } else {
+            return SourceResult {
+                source: self.name().into(),
+                fetched_at,
+                status: SourceStatus::Error("No valid categories found".into()),
+                scores: vec![],
+            };
+        };
 
-                                // Sort by ELO score descending
-                                ranked_models
-                                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some(models_obj) = text_data.get(category).and_then(|c| c.as_object()) {
+            let mut ranked_models: Vec<(String, f64)> = models_obj
+                .iter()
+                .filter_map(|(model_name, score_value)| {
+                    score_value
+                        .as_f64()
+                        .map(|score| (model_name.clone(), score))
+                })
+                .collect();
 
-                                // Build ModelScore entries with ranks
-                                for (rank, (source_model_name, elo_score)) in ranked_models.iter().enumerate() {
-                                    let rank_u32 = (rank + 1) as u32;
+            ranked_models
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                                    // Derive canonical model name (lowercase)
-                                    let canonical_name = source_model_name.to_lowercase();
+            for (rank, (source_model_name, elo_score)) in ranked_models.iter().enumerate() {
+                let rank_u32 = (rank + 1) as u32;
+                let canonical_name = source_model_name.to_lowercase();
 
-                                    let mut metrics = HashMap::new();
-                                    metrics.insert("elo_score".into(), MetricValue::Float(*elo_score));
-                                    metrics.insert("rank".into(), MetricValue::Int(rank_u32 as i64));
+                let mut metrics = HashMap::new();
+                metrics.insert("elo_score".into(), MetricValue::Float(*elo_score));
+                metrics.insert("rank".into(), MetricValue::Int(rank_u32 as i64));
 
-                                    scores.push(ModelScore {
-                                        model: canonical_name,
-                                        source_model_name: source_model_name.clone(),
-                                        metrics,
-                                        rank: Some(rank_u32),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
+                scores.push(ModelScore {
+                    model: canonical_name,
+                    source_model_name: source_model_name.clone(),
+                    metrics,
+                    rank: Some(rank_u32),
+                });
             }
         }
 

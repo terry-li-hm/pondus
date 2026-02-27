@@ -94,7 +94,8 @@ impl ArtificialAnalysis {
                 .collect();
 
             // Sort by intelligence_index descending
-            ranked_models.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            ranked_models
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
             // Build ModelScore entries with ranks
             for (rank, (source_model_name, intelligence_index, input_cost, output_cost, speed)) in
@@ -103,12 +104,7 @@ impl ArtificialAnalysis {
                 let rank_u32 = (rank + 1) as u32;
 
                 // Derive canonical model name (lowercase, normalized)
-                let canonical_name = source_model_name
-                    .to_lowercase()
-                    .replace(' ', "-")
-                    .replace("claude", "claude")
-                    .replace("gpt", "gpt")
-                    .replace("gemini", "gemini");
+                let canonical_name = source_model_name.to_lowercase().replace(' ', "-");
 
                 let mut metrics = HashMap::new();
                 metrics.insert(
@@ -116,7 +112,10 @@ impl ArtificialAnalysis {
                     MetricValue::Float(*intelligence_index),
                 );
                 if let Some(input) = input_cost {
-                    metrics.insert("input_cost_per_1m_tokens".into(), MetricValue::Float(*input));
+                    metrics.insert(
+                        "input_cost_per_1m_tokens".into(),
+                        MetricValue::Float(*input),
+                    );
                 }
                 if let Some(output) = output_cost {
                     metrics.insert(
