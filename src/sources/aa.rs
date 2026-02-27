@@ -4,6 +4,7 @@ use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
 use std::time::Duration;
@@ -23,7 +24,25 @@ impl Source for ArtificialAnalysis {
 
         // Try API with key first
         if let Some(api_key) = config.aa_api_key() {
-            return self.fetch_api(api_key, cache);
+            match self.fetch_api(api_key, cache) {
+                Ok(result) => return Ok(result),
+                Err(api_err) => {
+                    let fallback = self.fetch_scrape(config, cache)?;
+                    if matches!(fallback.status, SourceStatus::Ok) {
+                        return Ok(fallback);
+                    }
+
+                    return Ok(SourceResult {
+                        source: self.name().into(),
+                        fetched_at: None,
+                        status: SourceStatus::Error(format!(
+                            "AA API failed and scrape fallback failed: {}",
+                            api_err
+                        )),
+                        scores: vec![],
+                    });
+                }
+            }
         }
 
         // Fallback: scrape leaderboard via agent-browser
@@ -45,30 +64,27 @@ impl ArtificialAnalysis {
             .context("Failed to fetch from Artificial Analysis API")?;
 
         if !response.status().is_success() {
-            return Ok(SourceResult {
-                source: self.name().into(),
-                fetched_at: None,
-                status: SourceStatus::Error(format!("HTTP {}", response.status())),
-                scores: vec![],
-            });
+            anyhow::bail!("AA API returned HTTP {}", response.status());
         }
 
-        let data = response.json::<serde_json::Value>()?;
+        let payload: AaApiResponse = response
+            .json()
+            .context("Failed to parse Artificial Analysis API response")?;
 
         // Parse API response into cache format
         let mut ranked: Vec<(String, f64)> = Vec::new();
-        if let Some(models) = data.as_array() {
-            for model in models {
-                let name = match model.get("name").and_then(|v| v.as_str()) {
-                    Some(n) => n.to_string(),
-                    None => continue,
-                };
-                let score = match model.get("intelligence_index").and_then(|v| v.as_f64()) {
-                    Some(s) => s,
-                    None => continue,
-                };
-                ranked.push((name, score));
-            }
+        for model in payload.data {
+            let Some(score) = model
+                .evaluations
+                .artificial_analysis_intelligence_index
+            else {
+                continue;
+            };
+            ranked.push((model.name, score));
+        }
+
+        if ranked.is_empty() {
+            anyhow::bail!("AA API returned no models with intelligence index");
         }
 
         ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -78,7 +94,7 @@ impl ArtificialAnalysis {
             .map(|(name, score)| {
                 serde_json::json!({
                     "source_model_name": name,
-                    "score": score,
+                    "intelligence_index": score,
                 })
             })
             .collect();
@@ -126,7 +142,7 @@ impl ArtificialAnalysis {
             .map(|(name, score)| {
                 serde_json::json!({
                     "source_model_name": name,
-                    "score": score,
+                    "intelligence_index": score,
                 })
             })
             .collect();
@@ -153,7 +169,10 @@ impl ArtificialAnalysis {
                             .get("source_model_name")
                             .and_then(|v| v.as_str())?
                             .to_string();
-                        let score = entry.get("score").and_then(|v| v.as_f64())?;
+                        let score = entry
+                            .get("intelligence_index")
+                            .or_else(|| entry.get("score"))
+                            .and_then(|v| v.as_f64())?;
                         Some((name, score))
                     })
                     .collect()
@@ -187,6 +206,22 @@ impl ArtificialAnalysis {
             scores,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct AaApiResponse {
+    data: Vec<AaApiModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AaApiModel {
+    name: String,
+    evaluations: AaApiEvaluations,
+}
+
+#[derive(Debug, Deserialize)]
+struct AaApiEvaluations {
+    artificial_analysis_intelligence_index: Option<f64>,
 }
 
 fn run_agent_browser(agent_browser_path: &str, args: &[&str]) -> Result<String> {

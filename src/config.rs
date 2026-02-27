@@ -11,6 +11,8 @@ pub struct Config {
     pub cache: CacheConfig,
     #[serde(default)]
     pub alias: AliasConfig,
+    #[serde(skip)]
+    pub aa_api_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -45,13 +47,22 @@ pub struct AliasConfig {
 impl Config {
     pub fn load() -> Result<Self> {
         let path = config_path();
-        if path.exists() {
+        let mut config = if path.exists() {
             let content = std::fs::read_to_string(&path)?;
-            let config: Config = toml::from_str(&content)?;
-            Ok(config)
+            let mut config: Config = toml::from_str(&content)?;
+            config.aa_api_key = aa_api_key_from_content(&content);
+            config
         } else {
-            Ok(Config::default())
+            Config::default()
+        };
+
+        if let Ok(env_api_key) = std::env::var("AA_API_KEY")
+            && !env_api_key.trim().is_empty()
+        {
+            config.aa_api_key = Some(env_api_key);
         }
+
+        Ok(config)
     }
 
     pub fn agent_browser_path(&self) -> &str {
@@ -63,10 +74,22 @@ impl Config {
     }
 
     pub fn aa_api_key(&self) -> Option<&str> {
-        self.sources
-            .get("artificial-analysis")
-            .and_then(|s| s.api_key.as_deref())
+        self.aa_api_key.as_deref().or_else(|| {
+            self.sources
+                .get("artificial-analysis")
+                .or_else(|| self.sources.get("artificial_analysis"))
+                .and_then(|s| s.api_key.as_deref())
+        })
     }
+}
+
+fn aa_api_key_from_content(content: &str) -> Option<String> {
+    let value: toml::Value = toml::from_str(content).ok()?;
+    value
+        .get("artificial-analysis")
+        .and_then(|v| v.get("api_key"))
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
 }
 
 fn config_path() -> PathBuf {

@@ -94,7 +94,7 @@ impl AliasMap {
             if lower_name.len() > alias.len() && lower_name.starts_with(alias.as_str()) {
                 let next_char = lower_name.as_bytes()[alias.len()];
                 // Only match if followed by separator, not version dot
-                if next_char == b'-' || next_char == b'(' {
+                if next_char == b'-' || next_char == b'(' || next_char == b' ' {
                     let len = alias.len();
                     if best.as_ref().is_none_or(|(best_len, _)| len > *best_len) {
                         best = Some((len, canonical.clone()));
