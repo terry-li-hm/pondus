@@ -176,149 +176,70 @@ fn map_command_error(source: &str, step: &str, err: anyhow::Error) -> SourceResu
     }
 }
 
+/// Parse SWE-rebench leaderboard from agent-browser accessibility snapshot.
+///
+/// Table rows look like:
+/// ```text
+/// - row "1 Claude Code 52.9% 1.06% 70.8% $3.50 2,088,226 92.1%":
+///   - cell "1" [ref=...]
+///   - cell "Claude Code" [ref=...]
+///   - cell "52.9%" [ref=...]       ← resolved rate
+///   ...
+/// ```
+///
+/// Columns: Rank, Model, Resolved Rate (%), SEM (±), Pass@5 (%), Cost, Tokens, Cached%.
 fn parse_scores_from_text(text: &str) -> Vec<(String, f64)> {
-    let mut best_by_model: HashMap<String, f64> = HashMap::new();
+    let mut results: HashMap<String, f64> = HashMap::new();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut i = 0;
 
-    for line in text.lines() {
-        let trimmed = line.trim();
-        // Skip header or short lines
-        if trimmed.len() < 4 || should_skip_line(trimmed) {
-            continue;
-        }
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
 
-        if let Some((source_model_name, score)) = parse_line(trimmed) {
-            best_by_model
-                .entry(source_model_name)
-                .and_modify(|existing| {
-                    if score > *existing {
-                        *existing = score;
+        // Look for data rows — they start with a rank number and contain "%"
+        if trimmed.starts_with("- row \"") && trimmed.contains('%') {
+            let mut cells: Vec<String> = Vec::new();
+            let mut j = i + 1;
+            while j < lines.len() {
+                let cell_line = lines[j].trim();
+                if cell_line.starts_with("- cell \"") {
+                    if let Some(val) = extract_cell_value(cell_line) {
+                        cells.push(val);
                     }
-                })
-                .or_insert(score);
-        }
-    }
+                } else if cell_line.starts_with("- row ") {
+                    break;
+                }
+                j += 1;
+            }
 
-    best_by_model.into_iter().collect()
-}
+            // Cells: 0=Rank, 1=Model, 2=Resolved Rate
+            if cells.len() >= 3 {
+                let model_name = &cells[1];
+                // Parse "52.9%" → 52.9
+                let score_str = cells[2].trim_end_matches('%');
+                if let Ok(score) = score_str.parse::<f64>()
+                    && !model_name.is_empty()
+                    && model_name.chars().any(|c| c.is_ascii_alphabetic())
+                    && model_name != "Model"
+                {
+                    results.entry(model_name.clone()).or_insert(score);
+                }
+            }
 
-fn parse_line(line: &str) -> Option<(String, f64)> {
-    // If it's a snapshot row like: - row "1 Claude Code 52.9% ..."
-    let line = if line.contains("row \"") {
-        line.split('"').nth(1)?
-    } else {
-        line
-    };
-
-    let tokens: Vec<&str> = line.split_whitespace().collect();
-    if tokens.len() < 2 {
-        return None;
-    }
-
-    let mut numeric_positions = Vec::new();
-    for (idx, tok) in tokens.iter().enumerate() {
-        if let Some(value) = parse_numeric_token(tok) {
-            numeric_positions.push((idx, value, tok.ends_with('%')));
-        }
-    }
-
-    if numeric_positions.is_empty() {
-        return None;
-    }
-
-    // Rank is usually tokens[0]
-    let model_start = if let Some(rank_val) = parse_numeric_token(tokens[0]) {
-        if tokens.len() > 2 && rank_val.fract() == 0.0 && (1.0..=500.0).contains(&rank_val) {
-            1
+            i = j;
         } else {
-            0
+            i += 1;
         }
-    } else {
-        0
-    };
-
-    // Find the first percentage-like score (0..100) after the rank
-    let score_idx_and_val = numeric_positions
-        .iter()
-        .find(|(idx, v, has_pct)| *idx > model_start && (0.0..=100.0).contains(v) && *has_pct)
-        // Fallback to first numeric token after rank if no percentage sign found
-        .or_else(|| {
-            numeric_positions
-                .iter()
-                .find(|(idx, v, _)| *idx > model_start && (0.0..=100.0).contains(v))
-        })?;
-
-    let score_idx = score_idx_and_val.0;
-    let score = score_idx_and_val.1;
-
-    if score_idx <= model_start {
-        return None;
     }
 
-    let model = tokens[model_start..score_idx].join(" ").trim().to_string();
-    if !is_likely_model_name(&model) {
-        return None;
-    }
-
-    Some((model, score))
+    results.into_iter().collect()
 }
 
-fn parse_numeric_token(token: &str) -> Option<f64> {
-    let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != '+')
-        .trim_end_matches('%')
-        .replace(',', "");
-
-    if cleaned.is_empty() || !cleaned.chars().any(|c| c.is_ascii_digit()) {
-        return None;
-    }
-
-    // If it has letters but it's not a common suffix like 'b' or 'm', it's probably not a number
-    if cleaned.chars().any(|c| c.is_ascii_alphabetic()) {
-        return None;
-    }
-
-    cleaned.parse::<f64>().ok()
-}
-
-fn should_skip_line(line: &str) -> bool {
-    let lower = line.to_lowercase();
-    let skip_terms = [
-        "leaderboard",
-        "benchmark",
-        "rank model",
-        "resolved rate",
-        "updated",
-        "loading",
-        "search",
-        "filter",
-        "about",
-        "paper",
-        "data",
-    ];
-
-    skip_terms.iter().any(|term| lower.contains(term))
-}
-
-fn is_likely_model_name(name: &str) -> bool {
-    if name.len() < 2 || name.len() > 120 {
-        return false;
-    }
-
-    let lower = name.to_lowercase();
-    let banned = [
-        "overall",
-        "composite",
-        "score",
-        "rank",
-        "model",
-        "resolved",
-        "rate",
-    ];
-    if banned.iter().any(|word| lower == *word) {
-        return false;
-    }
-
-    name.chars().any(|c| c.is_ascii_alphabetic())
+/// Extract the quoted value from a cell line like `- cell "some value" [ref=...]:`
+fn extract_cell_value(line: &str) -> Option<String> {
+    let start = line.find('"')? + 1;
+    let end = line[start..].find('"')? + start;
+    Some(line[start..end].to_string())
 }
 
 fn normalize_model_name(name: &str) -> String {

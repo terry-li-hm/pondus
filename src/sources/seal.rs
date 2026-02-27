@@ -173,132 +173,117 @@ fn map_command_error(source: &str, step: &str, err: anyhow::Error) -> SourceResu
     }
 }
 
+/// Parse SEAL leaderboard from agent-browser accessibility snapshot.
+///
+/// The page shows benchmark cards as link elements containing flattened text:
+/// ```text
+/// link "MCP Atlas Evaluating ... 1 claude-opus-4-5 62.30±1.76 1 gpt-5.2 60.57±1.62 ..."
+/// ```
+///
+/// Scores use `SCORE±ERROR` format. We extract model-score pairs from each card
+/// and average across benchmarks per model.
 fn parse_scores_from_text(text: &str) -> Vec<(String, f64)> {
-    let mut best_by_model: HashMap<String, f64> = HashMap::new();
+    let mut model_scores: HashMap<String, Vec<f64>> = HashMap::new();
 
     for line in text.lines() {
         let trimmed = line.trim();
-        if trimmed.len() < 4 || should_skip_line(trimmed) {
+
+        // Find link elements that contain benchmark cards (they all have "View Full Ranking")
+        if !trimmed.contains("View Full Ranking") {
             continue;
         }
 
-        if let Some((source_model_name, score)) = parse_line(trimmed) {
-            best_by_model
-                .entry(source_model_name)
-                .and_modify(|existing| {
-                    if score > *existing {
-                        *existing = score;
-                    }
-                })
-                .or_insert(score);
-        }
-    }
-
-    best_by_model.into_iter().collect()
-}
-
-fn parse_line(line: &str) -> Option<(String, f64)> {
-    let tokens: Vec<&str> = line.split_whitespace().collect();
-    if tokens.len() < 2 {
-        return None;
-    }
-
-    let mut numeric_positions = Vec::new();
-    for (idx, tok) in tokens.iter().enumerate() {
-        if let Some(value) = parse_numeric_token(tok) {
-            numeric_positions.push((idx, value));
-        }
-    }
-
-    if numeric_positions.is_empty() {
-        return None;
-    }
-
-    // Prefer the right-most percentage-like score (0..100); otherwise use right-most numeric token.
-    let score_idx_and_val = numeric_positions
-        .iter()
-        .rev()
-        .find(|(_, v)| (0.0..=100.0).contains(v))
-        .or_else(|| {
-            numeric_positions
-                .iter()
-                .rev()
-                .find(|(_, v)| (0.0..=10_000.0).contains(v))
-        })?;
-
-    let score_idx = score_idx_and_val.0;
-    let score = score_idx_and_val.1;
-
-    let model_start = if let Some(rank_val) = parse_numeric_token(tokens[0]) {
-        if tokens.len() > 2 && rank_val.fract() == 0.0 && (1.0..=200.0).contains(&rank_val) {
-            1
+        // Extract the quoted link text
+        let link_text = if let Some(start) = trimmed.find('"') {
+            let rest = &trimmed[start + 1..];
+            if let Some(end) = rest.rfind("View Full Ranking") {
+                &rest[..end]
+            } else {
+                continue;
+            }
         } else {
-            0
+            continue;
+        };
+
+        // Parse model-score pairs from the link text
+        // Pattern: RANK MODEL_NAME [NEW] SCORE±ERROR
+        for (model, score) in extract_model_scores(link_text) {
+            model_scores.entry(model).or_default().push(score);
         }
-    } else {
-        0
-    };
-
-    if score_idx <= model_start {
-        return None;
     }
 
-    let model = tokens[model_start..score_idx].join(" ").trim().to_string();
-    if !is_likely_model_name(&model) {
-        return None;
-    }
-
-    Some((model, score))
+    // Average scores across benchmarks per model
+    model_scores
+        .into_iter()
+        .map(|(model, scores)| {
+            let avg = scores.iter().sum::<f64>() / scores.len() as f64;
+            (model, avg)
+        })
+        .collect()
 }
 
-fn parse_numeric_token(token: &str) -> Option<f64> {
-    let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != '+')
-        .trim_end_matches('%')
-        .replace(',', "");
+/// Extract (model_name, score) pairs from a SEAL card's flattened text.
+///
+/// Forward parser: walks tokens left-to-right. After each `SCORE±ERROR` token,
+/// the next small integer is the rank for the next model. Tokens between rank
+/// and score (excluding "NEW") form the model name.
+fn extract_model_scores(text: &str) -> Vec<(String, f64)> {
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let mut results = Vec::new();
 
-    if cleaned.is_empty() || !cleaned.chars().any(|c| c.is_ascii_digit()) {
-        return None;
+    // First, find all score positions (tokens containing ±)
+    let score_positions: Vec<usize> = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.contains('±'))
+        .map(|(i, _)| i)
+        .collect();
+
+    if score_positions.is_empty() {
+        return results;
     }
 
-    if cleaned.chars().any(|c| c.is_ascii_alphabetic()) {
-        return None;
+    // For each score, find the rank that precedes it.
+    // The rank for the first model is the first small integer before the first ±.
+    // For subsequent models, the rank is the first small integer after the previous ±.
+    for (si, &score_pos) in score_positions.iter().enumerate() {
+        let score_str = tokens[score_pos].split('±').next().unwrap_or("");
+        let score: f64 = match score_str.parse() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Search window for rank: after previous score (or start) up to this score
+        let search_start = if si == 0 {
+            0
+        } else {
+            score_positions[si - 1] + 1
+        };
+
+        // Find the rank (first small integer in the search window)
+        let rank_pos = (search_start..score_pos).find(|&j| {
+            tokens[j].parse::<u32>().is_ok_and(|n| n <= 500)
+        });
+
+        let name_start = match rank_pos {
+            Some(rp) => rp + 1,
+            None => search_start,
+        };
+
+        // Collect name tokens between rank and score, skipping "NEW"
+        let name: String = tokens[name_start..score_pos]
+            .iter()
+            .filter(|&&t| t != "NEW")
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if name.len() >= 2 && name.chars().any(|c| c.is_ascii_alphabetic()) {
+            results.push((name, score));
+        }
     }
 
-    cleaned.parse::<f64>().ok()
-}
-
-fn should_skip_line(line: &str) -> bool {
-    let lower = line.to_lowercase();
-    let skip_terms = [
-        "leaderboard",
-        "benchmark",
-        "category",
-        "categories",
-        "updated",
-        "loading",
-        "search",
-        "filter",
-        "overall rank",
-        "view",
-        "share",
-    ];
-
-    skip_terms.iter().any(|term| lower.contains(term))
-}
-
-fn is_likely_model_name(name: &str) -> bool {
-    if name.len() < 2 || name.len() > 120 {
-        return false;
-    }
-
-    let lower = name.to_lowercase();
-    let banned = ["overall", "composite", "score", "rank", "model"];
-    if banned.iter().any(|word| lower == *word) {
-        return false;
-    }
-
-    name.chars().any(|c| c.is_ascii_alphabetic())
+    results
 }
 
 fn normalize_model_name(name: &str) -> String {
