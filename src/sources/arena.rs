@@ -267,7 +267,20 @@ fn parse_scores_from_snapshot(text: &str) -> Vec<(String, f64)> {
         }
     }
 
-    results.into_iter().collect()
+    results
+        .into_iter()
+        .filter(|(name, _)| !is_image_or_video_model(name))
+        .collect()
+}
+
+/// Filter out image/video generation models — pondus tracks text/code models only.
+fn is_image_or_video_model(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    let keywords = [
+        "flux-", "image", "imagine", "dall-e", "midjourney", "stable-diff", "ideogram",
+        "recraft", "video",
+    ];
+    keywords.iter().any(|kw| lower.contains(kw))
 }
 
 /// Parse the community JSON mirror (fallback).
@@ -304,6 +317,7 @@ fn parse_json_response(data: &serde_json::Value) -> Vec<(String, f64)> {
             models
                 .iter()
                 .filter_map(|(name, score)| score.as_f64().map(|s| (name.clone(), s)))
+                .filter(|(name, _)| !is_image_or_video_model(name))
                 .collect()
         })
         .unwrap_or_default()
