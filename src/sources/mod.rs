@@ -1,4 +1,9 @@
+pub mod aa;
+pub mod aider;
+pub mod arena;
+pub mod livebench;
 pub mod mock;
+pub mod swebench;
 pub mod tbench;
 
 use crate::cache::Cache;
@@ -14,15 +19,12 @@ pub trait Source {
 /// Returns all registered sources.
 pub fn all_sources() -> Vec<Box<dyn Source>> {
     vec![
-        // TODO: add real sources as they're implemented
-        // Box::new(aa::ArtificialAnalysis),
-        // Box::new(arena::Arena),
-        // Box::new(swebench::SweBench),
-        // Box::new(aider::Aider),
-        // Box::new(livebench::LiveBench),
-        // Box::new(tbench::TerminalBench),
-        // Box::new(seal::Seal),
-        // Box::new(swebench_r::SweRebench),
+        Box::new(aa::ArtificialAnalysis),
+        Box::new(arena::Arena),
+        Box::new(swebench::SweBench),
+        Box::new(aider::Aider),
+        Box::new(livebench::LiveBench),
+        Box::new(tbench::TerminalBench),
     ]
 }
 
