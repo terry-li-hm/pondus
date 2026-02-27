@@ -27,13 +27,12 @@ impl Source for Seal {
             return Ok(map_command_error(self.name(), "open", err));
         }
 
-        if let Err(err) = run_agent_browser(agent_browser, &["snapshot"]) {
-            return Ok(map_command_error(self.name(), "snapshot", err));
-        }
+        // Wait for page to load, then get accessibility tree text
+        let _ = run_agent_browser(agent_browser, &["wait", "2000"]);
 
-        let page_text = match run_agent_browser(agent_browser, &["read_page"]) {
+        let page_text = match run_agent_browser(agent_browser, &["snapshot"]) {
             Ok(text) => text,
-            Err(err) => return Ok(map_command_error(self.name(), "read_page", err)),
+            Err(err) => return Ok(map_command_error(self.name(), "snapshot", err)),
         };
 
         let mut parsed = parse_scores_from_text(&page_text);

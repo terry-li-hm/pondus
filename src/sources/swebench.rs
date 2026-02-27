@@ -123,7 +123,7 @@ fn extract_model_score(result: &serde_json::Value) -> Option<ModelScore> {
     }
 
     Some(ModelScore {
-        model: name.to_lowercase(),
+        model: name.to_lowercase().replace([' ', '_'], "-"),
         source_model_name: name.to_string(),
         metrics,
         rank: None,

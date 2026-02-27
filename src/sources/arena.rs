@@ -119,7 +119,7 @@ impl Arena {
 
             for (rank, (source_model_name, elo_score)) in ranked_models.iter().enumerate() {
                 let rank_u32 = (rank + 1) as u32;
-                let canonical_name = source_model_name.to_lowercase();
+                let canonical_name = source_model_name.to_lowercase().replace([' ', '_'], "-");
 
                 let mut metrics = HashMap::new();
                 metrics.insert("elo_score".into(), MetricValue::Float(*elo_score));

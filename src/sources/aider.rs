@@ -107,7 +107,7 @@ fn parse_scores(data: &serde_json::Value) -> Vec<ModelScore> {
         }
 
         scores.push(ModelScore {
-            model: model_name.to_lowercase(),
+            model: model_name.to_lowercase().replace([' ', '_'], "-"),
             source_model_name: model_name.to_string(),
             metrics,
             rank: None,
