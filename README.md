@@ -13,16 +13,16 @@ Aggregates AI model benchmark data from 8 trusted sources into a unified JSON sc
 
 | Source | Type | Data |
 |--------|------|------|
-| Artificial Analysis | REST API | Speed, quality, pricing metrics |
+| Artificial Analysis | agent-browser scrape | Intelligence index, speed, pricing |
 | LM Arena (LMSYS) | Community JSON | ELO ratings from human preferences |
 | SWE-bench | GitHub JSON | Code generation resolve rates |
 | SWE-rebench | agent-browser scrape | Code generation resolve rates (rebench variant) |
 | Aider | GitHub YAML | Polyglot coding benchmark pass rates |
-| LiveBench | HuggingFace | Multi-domain benchmark scores |
-| Terminal-Bench | HuggingFace | Terminal/CLI task completion |
-| SEAL | agent-browser scrape | Scale AI evaluation scores |
+| LiveBench | HuggingFace API | Multi-domain benchmark scores |
+| Terminal-Bench | HuggingFace YAML | Terminal/CLI task completion |
+| SEAL | agent-browser scrape | Scale AI multi-benchmark evaluations |
 
-> **Note:** Sources marked "agent-browser scrape" require the `agent-browser` CLI installed separately. All other sources work out of the box.
+> **Note:** Sources marked "agent-browser scrape" require the [`agent-browser`](https://github.com/anthropics/agent-browser) CLI. All other sources work out of the box. LiveBench data depends on the upstream HuggingFace dataset which may lag behind other sources.
 
 ## Installation
 
@@ -82,7 +82,7 @@ aliases = [
 ]
 ```
 
-When you run `pondus check opus-4.6`, pondus resolves the alias to the canonical name and matches it across all sources regardless of how each source names the model. PRs welcome to add new models.
+When you run `pondus check opus-4.6`, pondus resolves the alias to the canonical name and matches across all sources. Prefix matching also works automatically — `gemini-2.5-pro-preview-06-05` matches `gemini-2.5-pro` since the suffix starts with `-`. PRs welcome to add new models.
 
 ## Output Format
 
