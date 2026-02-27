@@ -1,0 +1,11 @@
+[package]
+name = "pondus"
+version = "0.1.0"
+edition = "2024"
+description = "Opinionated AI model benchmark aggregator"
+license = "MIT"
+repository = "https://github.com/terry-li-hm/pondus"
+keywords = ["ai", "benchmarks", "llm", "evaluation"]
+categories = ["command-line-utilities"]
+
+[dependencies]
