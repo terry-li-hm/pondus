@@ -1,7 +1,7 @@
 ---
 title: "feat: Pondus benchmark aggregator CLI"
 type: feat
-status: active
+status: completed
 date: 2026-02-27
 origin: docs/brainstorms/2026-02-27-pondus-design-brainstorm.md
 ---
@@ -291,8 +291,8 @@ All subcommands working, output formats complete.
 - [x] LICENSE (MIT, already set in Cargo.toml)
 - [x] GitHub Actions CI (cargo test, cargo clippy, cargo fmt)
 - [x] Seed `models.toml` with current frontier models (~25 models)
-- [ ] `cargo publish` real version (0.2.0 — 0.1.0 was the placeholder)
-- [ ] Update PyPI placeholder or remove it (Rust-only distribution)
+- [x] `cargo publish` real version (0.2.0 — 0.1.0 was the placeholder)
+- [ ] Update PyPI placeholder or remove it (Rust-only distribution) — deferred, low priority
 
 **Done when:** `cargo install pondus` works for anyone. README documents all commands.
 
