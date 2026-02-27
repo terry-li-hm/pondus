@@ -3,7 +3,9 @@ pub mod aider;
 pub mod arena;
 pub mod livebench;
 pub mod mock;
+pub mod seal;
 pub mod swebench;
+pub mod swebench_r;
 pub mod tbench;
 
 use crate::cache::Cache;
@@ -25,6 +27,8 @@ pub fn all_sources() -> Vec<Box<dyn Source>> {
         Box::new(aider::Aider),
         Box::new(livebench::LiveBench),
         Box::new(tbench::TerminalBench),
+        Box::new(seal::Seal),
+        Box::new(swebench_r::SweRebench),
     ]
 }
 
