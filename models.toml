@@ -202,3 +202,22 @@ aliases = [
   "claude-code-agent",
   "Anthropic Claude Code",
 ]
+
+[glm-5]
+canonical = "glm-5"
+aliases = [
+  "GLM-5",
+  "glm-5",
+  "GLM-5 (high reasoning)",
+  "z-ai/glm-5",
+]
+
+["kimi-k2.5"]
+canonical = "kimi-k2.5"
+aliases = [
+  "Kimi K2.5",
+  "kimi-k2.5",
+  "Kimi K2.5 (high reasoning)",
+  "Terminus2 / Kimi-k2.5",
+  "moonshotai/kimi-k2.5",
+]
