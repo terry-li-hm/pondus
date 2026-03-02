@@ -52,6 +52,9 @@ enum Command {
         /// Minimum number of sources a model must appear in (default: 2 when --aggregate is set)
         #[arg(long)]
         min_sources: Option<usize>,
+        /// Show models excluded by --min-sources threshold when aggregating
+        #[arg(long)]
+        show_excluded: bool,
     },
     /// Check a single model across all sources
     Check {
@@ -89,6 +92,7 @@ fn main() -> Result<()> {
         source: None,
         aggregate: false,
         min_sources: None,
+        show_excluded: false,
     });
 
     match command {
@@ -97,6 +101,7 @@ fn main() -> Result<()> {
             source,
             aggregate,
             min_sources,
+            show_excluded,
         } => cmd_rank(
             &config,
             &cache,
@@ -106,6 +111,7 @@ fn main() -> Result<()> {
             source.as_deref(),
             aggregate,
             min_sources,
+            show_excluded,
         ),
         Command::Check {
             model,
@@ -118,7 +124,17 @@ fn main() -> Result<()> {
         Command::Refresh => {
             cache.clear()?;
             eprintln!("Cache cleared. Re-fetching all sources...");
-            cmd_rank(&config, &cache, &aliases, format, None, None, false, None)
+            cmd_rank(
+                &config,
+                &cache,
+                &aliases,
+                format,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
         }
     }
 }
@@ -156,6 +172,7 @@ fn cmd_rank(
     source_filter: Option<&str>,
     aggregate: bool,
     min_sources: Option<usize>,
+    show_excluded: bool,
 ) -> Result<()> {
     let mut results = fetch_all(config, cache);
 
@@ -180,7 +197,29 @@ fn cmd_rank(
 
     if aggregate {
         let threshold = min_sources.unwrap_or(2);
-        let mut aggregated = aggregate_results(results, threshold);
+        let excluded_for_count = if show_excluded {
+            Vec::new()
+        } else {
+            excluded_models(results.as_slice(), threshold)
+        };
+        let (mut aggregated, excluded_models) = aggregate_results(results, threshold, show_excluded);
+        let excluded_models = if show_excluded {
+            excluded_models
+        } else {
+            excluded_for_count
+        };
+        if !excluded_models.is_empty() {
+            eprintln!(
+                "{} models excluded (appeared in fewer than {} sources). Use --show-excluded to list.",
+                excluded_models.len(),
+                threshold
+            );
+            if show_excluded {
+                for (model, count) in &excluded_models {
+                    eprintln!("  {} ({})", model, count);
+                }
+            }
+        }
         if let Some(n) = top {
             aggregated.scores.truncate(n);
         }
@@ -206,8 +245,12 @@ fn cmd_rank(
     Ok(())
 }
 
-fn aggregate_results(results: Vec<SourceResult>, min_sources: usize) -> SourceResult {
-    let mut totals: HashMap<String, (f64, usize)> = HashMap::new();
+fn aggregate_results(
+    results: Vec<SourceResult>,
+    min_sources: usize,
+    show_excluded: bool,
+) -> (SourceResult, Vec<(String, usize)>) {
+    let mut totals: HashMap<String, Vec<f64>> = HashMap::new();
 
     for source in results {
         let total_in_source = source.scores.len();
@@ -215,26 +258,30 @@ fn aggregate_results(results: Vec<SourceResult>, min_sources: usize) -> SourceRe
             continue;
         }
 
-        let total = total_in_source as f64;
         for score in source.scores {
             let Some(rank) = score.rank else {
                 continue;
             };
 
-            let percentile = 1.0 - ((rank as f64 - 1.0) / total);
-            let entry = totals.entry(score.model).or_insert((0.0, 0));
-            entry.0 += percentile;
-            entry.1 += 1;
+            let entry = totals.entry(score.model).or_default();
+            entry.push(percentile(rank, total_in_source));
         }
     }
 
-    let mut rows: Vec<(String, f64, usize)> = totals
+    let mut excluded: Vec<(String, usize)> = Vec::new();
+    let mut rows: Vec<(String, f64, f64, usize)> = totals
         .into_iter()
-        .filter_map(|(model, (sum, count))| {
+        .filter_map(|(model, percentiles)| {
+            let count = percentiles.len();
             if count < min_sources {
+                if show_excluded {
+                    excluded.push((model, count));
+                }
                 None
             } else {
-                Some((model, sum / count as f64, count))
+                let avg = percentiles.iter().sum::<f64>() / count as f64;
+                let spread = std_dev(&percentiles);
+                Some((model, avg, spread, count))
             }
         })
         .collect();
@@ -244,11 +291,12 @@ fn aggregate_results(results: Vec<SourceResult>, min_sources: usize) -> SourceRe
             .unwrap_or(Ordering::Equal)
             .then_with(|| a.0.cmp(&b.0))
     });
+    excluded.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
     let scores = rows
         .into_iter()
         .enumerate()
-        .map(|(i, (model, avg_percentile, sources_count))| ModelScore {
+        .map(|(i, (model, avg_percentile, spread, sources_count))| ModelScore {
             model: model.clone(),
             source_model_name: model,
             metrics: HashMap::from([
@@ -256,6 +304,7 @@ fn aggregate_results(results: Vec<SourceResult>, min_sources: usize) -> SourceRe
                     "avg_percentile".to_string(),
                     MetricValue::Float(avg_percentile),
                 ),
+                ("spread".to_string(), MetricValue::Float(spread)),
                 (
                     "sources_count".to_string(),
                     MetricValue::Int(sources_count as i64),
@@ -265,12 +314,51 @@ fn aggregate_results(results: Vec<SourceResult>, min_sources: usize) -> SourceRe
         })
         .collect();
 
-    SourceResult {
-        source: "aggregate".to_string(),
-        fetched_at: None,
-        status: SourceStatus::Ok,
-        scores,
+    (
+        SourceResult {
+            source: "aggregate".to_string(),
+            fetched_at: None,
+            status: SourceStatus::Ok,
+            scores,
+        },
+        if show_excluded { excluded } else { Vec::new() },
+    )
+}
+
+fn excluded_models(results: &[SourceResult], min_sources: usize) -> Vec<(String, usize)> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+
+    for source in results {
+        for score in &source.scores {
+            if score.rank.is_none() {
+                continue;
+            }
+            *counts.entry(score.model.clone()).or_insert(0) += 1;
+        }
     }
+
+    let mut excluded: Vec<(String, usize)> = counts
+        .into_iter()
+        .filter(|(_, count)| *count < min_sources)
+        .collect();
+    excluded.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    excluded
+}
+
+fn percentile(rank: u32, total: usize) -> f64 {
+    if total <= 1 {
+        1.0
+    } else {
+        (total as f64 - rank as f64) / (total as f64 - 1.0)
+    }
+}
+
+fn std_dev(values: &[f64]) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    (values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64).sqrt()
 }
 
 fn cmd_check(
@@ -391,4 +479,30 @@ fn cmd_sources(config: &Config, cache: &Cache, format: OutputFormat) -> Result<(
 
     println!("{}", output::render(&output, format)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percentile;
+
+    #[test]
+    fn percentile_rank_1_of_10_is_1() {
+        assert!((percentile(1, 10) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn percentile_rank_10_of_10_is_0() {
+        assert!((percentile(10, 10) - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn percentile_rank_1_of_1_is_1() {
+        assert!((percentile(1, 1) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn percentile_rank_5_of_10_matches_expected_formula() {
+        let expected = (10.0 - 5.0) / (10.0 - 1.0);
+        assert!((percentile(5, 10) - expected).abs() < f64::EPSILON);
+    }
 }
