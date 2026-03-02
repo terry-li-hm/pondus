@@ -8,7 +8,7 @@ mod sources;
 use alias::{AliasMap, MatchKind};
 use anyhow::Result;
 use cache::Cache;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use clap::{Parser, Subcommand};
 use config::Config;
 use models::{
@@ -63,6 +63,12 @@ enum Command {
         /// Show models excluded by --min-sources threshold when aggregating
         #[arg(long)]
         show_excluded: bool,
+        /// Exclude sources with data older than N days
+        #[arg(long)]
+        max_age: Option<u64>,
+        /// Show data age for each source in rank output
+        #[arg(long)]
+        show_freshness: bool,
     },
     /// Check a single model across all sources
     Check {
@@ -103,6 +109,8 @@ fn main() -> Result<()> {
         aggregate: false,
         min_sources: None,
         show_excluded: false,
+        max_age: None,
+        show_freshness: false,
     });
 
     match command {
@@ -114,6 +122,8 @@ fn main() -> Result<()> {
             aggregate,
             min_sources,
             show_excluded,
+            max_age,
+            show_freshness,
         } => cmd_rank(
             &config,
             &cache,
@@ -126,6 +136,8 @@ fn main() -> Result<()> {
             aggregate,
             min_sources,
             show_excluded,
+            max_age,
+            show_freshness,
         ),
         Command::Check {
             model,
@@ -140,6 +152,7 @@ fn main() -> Result<()> {
             eprintln!("Cache cleared. Re-fetching all sources...");
             cmd_rank(
                 &config, &cache, &aliases, format, None, None, None, None, false, None, false,
+                None, false,
             )
         }
     }
@@ -214,8 +227,37 @@ fn cmd_rank(
     aggregate: bool,
     min_sources: Option<usize>,
     show_excluded: bool,
+    max_age: Option<u64>,
+    show_freshness: bool,
 ) -> Result<()> {
     let mut results = fetch_all(config, cache);
+    let now = Utc::now();
+
+    if let Some(max_age_days) = max_age {
+        let max_age_duration = Duration::days(max_age_days as i64);
+        results.retain(|result| {
+            let Some(fetched_at) = result.fetched_at else {
+                eprintln!(
+                    "[{}] excluded: data is unknown days old (--max-age {})",
+                    result.source, max_age_days
+                );
+                return false;
+            };
+
+            let age = now.signed_duration_since(fetched_at);
+            if age > max_age_duration {
+                eprintln!(
+                    "[{}] excluded: data is {} days old (--max-age {})",
+                    result.source,
+                    age.num_days(),
+                    max_age_days
+                );
+                false
+            } else {
+                true
+            }
+        });
+    }
 
     if let Some(tag_name) = tag_filter {
         let requested_tag = parse_source_tag(tag_name).ok_or_else(|| {
@@ -259,6 +301,17 @@ fn cmd_rank(
         }
 
         results = filtered;
+    }
+
+    if show_freshness {
+        eprintln!("Data freshness:");
+        for result in &results {
+            let freshness = match result.fetched_at {
+                Some(fetched_at) => format_age(now.signed_duration_since(fetched_at)),
+                None => "unknown".to_string(),
+            };
+            eprintln!("  {:<20} {}", result.source, freshness);
+        }
     }
 
     if aggregate {
@@ -310,6 +363,13 @@ fn cmd_rank(
 
     println!("{}", output::render(&output, format)?);
     Ok(())
+}
+
+fn format_age(age: Duration) -> String {
+    let total_hours = age.num_hours().max(0);
+    let days = total_hours / 24;
+    let hours = total_hours % 24;
+    format!("{days}d {hours}h")
 }
 
 fn aggregate_results(

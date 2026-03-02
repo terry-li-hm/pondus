@@ -1,5 +1,6 @@
 use crate::models::{MetricValue, PondusOutput, SourceStatus};
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use owo_colors::OwoColorize;
 use std::collections::HashSet;
 
@@ -136,10 +137,11 @@ fn render_table(output: &PondusOutput) -> Result<String> {
 }
 
 fn render_sources_table(output: &PondusOutput) -> Result<String> {
-    let columns = ["Source", "Status", "Tags"];
+    let now = Utc::now();
+    let columns = ["Source", "Status", "Age", "Tags"];
     let mut widths = columns.map(str::len);
 
-    let mut rows: Vec<[String; 3]> = Vec::new();
+    let mut rows: Vec<[String; 4]> = Vec::new();
     for source in &output.sources {
         let tags = output
             .source_tags
@@ -155,7 +157,8 @@ fn render_sources_table(output: &PondusOutput) -> Result<String> {
             .unwrap_or_else(|| "-".to_string());
 
         let status = format_status(&source.status);
-        let row = [source.source.clone(), status, tags];
+        let age = format_cached_age(source.fetched_at, now);
+        let row = [source.source.clone(), status, age, tags];
         for (i, cell) in row.iter().enumerate() {
             widths[i] = widths[i].max(cell.len());
         }
@@ -311,6 +314,18 @@ fn format_metric(metric_name: &str, value: &MetricValue) -> String {
         }
         MetricValue::Int(i) => i.to_string(),
         MetricValue::Text(t) => t.clone(),
+    }
+}
+
+fn format_cached_age(fetched_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
+    match fetched_at {
+        Some(ts) => {
+            let total_hours = now.signed_duration_since(ts).num_hours().max(0);
+            let days = total_hours / 24;
+            let hours = total_hours % 24;
+            format!("{days}d {hours}h")
+        }
+        None => "unknown".to_string(),
     }
 }
 
