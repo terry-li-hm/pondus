@@ -200,7 +200,7 @@ fn format_status(status: &SourceStatus) -> String {
 fn format_metric(metric_name: &str, value: &MetricValue) -> String {
     match value {
         MetricValue::Float(f) => {
-            if metric_name == "avg_percentile" {
+            if metric_name == "avg_percentile" || metric_name == "spread" {
                 format!("{:.3}", f)
             } else {
                 format!("{:.2}", f)
