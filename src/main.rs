@@ -528,6 +528,14 @@ fn cmd_check(
         }
     }
 
+    let total_matches: usize = filtered.iter().map(|r| r.scores.len()).sum();
+    if total_matches == 0 && !show_matches {
+        eprintln!(
+            "[warn] '{}' not found in any source. Try: pondus check {} --show-matches",
+            model, model
+        );
+    }
+
     let output = PondusOutput {
         timestamp: Utc::now(),
         query: QueryInfo {

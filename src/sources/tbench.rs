@@ -112,9 +112,11 @@ fn extract_from_siblings(data: &serde_json::Value) -> Vec<ModelScore> {
     let mut scores: Vec<ModelScore> = model_counts
         .into_iter()
         .map(|(agent_model, count)| {
-            // Split "Agent__Model" into parts
+            // Split "Agent__Model" — use only the model part for canonical name
+            // so it matches other sources' normalization (e.g. "gemini-3-pro-preview")
             let display_name = agent_model.replace("__", " / ");
-            let canonical = agent_model.to_lowercase().replace("__", "/");
+            let model_part = agent_model.split("__").nth(1).unwrap_or(&agent_model);
+            let canonical = model_part.to_lowercase();
 
             let mut metrics = HashMap::new();
             metrics.insert("tasks_completed".into(), MetricValue::Int(count as i64));
