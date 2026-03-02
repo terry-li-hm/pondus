@@ -1,6 +1,6 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -11,10 +11,15 @@ const CACHE_KEY: &str = "terminal-bench";
 const HF_API_URL: &str = "https://huggingface.co/api/datasets/sabhay/terminal-bench-2-leaderboard";
 
 pub struct TerminalBench;
+static TAGS: &[SourceTag] = &[SourceTag::Coding, SourceTag::Agentic];
 
 impl Source for TerminalBench {
     fn name(&self) -> &str {
         "terminal-bench"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, _config: &Config, cache: &Cache) -> Result<SourceResult> {

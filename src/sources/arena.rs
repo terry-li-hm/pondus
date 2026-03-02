@@ -1,6 +1,6 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -9,10 +9,15 @@ use std::process::Command;
 use std::time::Duration;
 
 pub struct Arena;
+static TAGS: &[SourceTag] = &[SourceTag::Reasoning, SourceTag::General];
 
 impl Source for Arena {
     fn name(&self) -> &str {
         "arena"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, config: &Config, cache: &Cache) -> Result<SourceResult> {

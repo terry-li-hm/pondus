@@ -1,6 +1,6 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -22,10 +22,15 @@ struct AiderEntry {
 }
 
 pub struct Aider;
+static TAGS: &[SourceTag] = &[SourceTag::Coding];
 
 impl Source for Aider {
     fn name(&self) -> &str {
         "aider"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, _config: &Config, cache: &Cache) -> Result<SourceResult> {

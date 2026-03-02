@@ -11,11 +11,13 @@ use cache::Cache;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use config::Config;
-use models::{MetricValue, ModelScore, PondusOutput, QueryInfo, SourceResult, SourceStatus};
+use models::{
+    MetricValue, ModelScore, PondusOutput, QueryInfo, SourceResult, SourceStatus, SourceTag,
+};
 use output::OutputFormat;
 use sources::Source;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Parser)]
 #[command(
@@ -46,6 +48,12 @@ enum Command {
         /// Filter to a single source name (case-insensitive)
         #[arg(long)]
         source: Option<String>,
+        /// Filter to source tags: reasoning, coding, agentic, general
+        #[arg(long)]
+        tag: Option<String>,
+        /// Comma-separated source names (case-insensitive)
+        #[arg(long)]
+        sources: Option<String>,
         /// Produce a combined leaderboard across sources
         #[arg(long)]
         aggregate: bool,
@@ -90,6 +98,8 @@ fn main() -> Result<()> {
     let command = cli.command.unwrap_or(Command::Rank {
         top: None,
         source: None,
+        tag: None,
+        sources: None,
         aggregate: false,
         min_sources: None,
         show_excluded: false,
@@ -99,6 +109,8 @@ fn main() -> Result<()> {
         Command::Rank {
             top,
             source,
+            tag,
+            sources,
             aggregate,
             min_sources,
             show_excluded,
@@ -109,6 +121,8 @@ fn main() -> Result<()> {
             format,
             top,
             source.as_deref(),
+            tag.as_deref(),
+            sources.as_deref(),
             aggregate,
             min_sources,
             show_excluded,
@@ -125,15 +139,7 @@ fn main() -> Result<()> {
             cache.clear()?;
             eprintln!("Cache cleared. Re-fetching all sources...");
             cmd_rank(
-                &config,
-                &cache,
-                &aliases,
-                format,
-                None,
-                None,
-                false,
-                None,
-                false,
+                &config, &cache, &aliases, format, None, None, None, None, false, None, false,
             )
         }
     }
@@ -163,6 +169,39 @@ fn get_sources() -> Vec<Box<dyn Source>> {
     }
 }
 
+fn source_tag_map(config: &Config) -> HashMap<String, Vec<SourceTag>> {
+    let mut tags_by_source: HashMap<String, Vec<SourceTag>> = get_sources()
+        .into_iter()
+        .map(|source| (source.name().to_lowercase(), source.tags().to_vec()))
+        .collect();
+
+    for (source, tags) in &config.source_tags {
+        let parsed_tags: Vec<SourceTag> = tags.iter().filter_map(|t| parse_source_tag(t)).collect();
+        tags_by_source.insert(source.to_lowercase(), parsed_tags);
+    }
+
+    tags_by_source
+}
+
+fn parse_source_tag(tag: &str) -> Option<SourceTag> {
+    match tag.trim().to_lowercase().as_str() {
+        "reasoning" => Some(SourceTag::Reasoning),
+        "coding" => Some(SourceTag::Coding),
+        "agentic" => Some(SourceTag::Agentic),
+        "general" => Some(SourceTag::General),
+        _ => None,
+    }
+}
+
+fn source_tag_name(tag: &SourceTag) -> &'static str {
+    match tag {
+        SourceTag::Reasoning => "reasoning",
+        SourceTag::Coding => "coding",
+        SourceTag::Agentic => "agentic",
+        SourceTag::General => "general",
+    }
+}
+
 fn cmd_rank(
     config: &Config,
     cache: &Cache,
@@ -170,17 +209,44 @@ fn cmd_rank(
     format: OutputFormat,
     top: Option<usize>,
     source_filter: Option<&str>,
+    tag_filter: Option<&str>,
+    sources_filter: Option<&str>,
     aggregate: bool,
     min_sources: Option<usize>,
     show_excluded: bool,
 ) -> Result<()> {
     let mut results = fetch_all(config, cache);
 
-    if let Some(source_name) = source_filter {
-        let needle = source_name.to_lowercase();
+    if let Some(tag_name) = tag_filter {
+        let requested_tag = parse_source_tag(tag_name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unknown tag: '{tag_name}'. Expected one of: reasoning, coding, agentic, general"
+            )
+        })?;
+        let tags_by_source = source_tag_map(config);
+        results.retain(|result| {
+            tags_by_source
+                .get(&result.source.to_lowercase())
+                .is_some_and(|tags| tags.contains(&requested_tag))
+        });
+    }
+
+    let merged_sources = sources_filter.or(source_filter);
+    if let Some(source_list) = merged_sources {
+        let requested_sources: HashSet<String> = source_list
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| name.to_lowercase())
+            .collect();
+
+        if requested_sources.is_empty() {
+            anyhow::bail!("--sources/--source requires at least one source name");
+        }
+
         let filtered: Vec<_> = results
             .into_iter()
-            .filter(|r| r.source.to_lowercase() == needle)
+            .filter(|r| requested_sources.contains(&r.source.to_lowercase()))
             .collect();
 
         if filtered.is_empty() {
@@ -189,7 +255,7 @@ fn cmd_rank(
                 .map(|s| s.name().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            anyhow::bail!("Source not found: '{source_name}'. Available sources: {available}");
+            anyhow::bail!("No matching sources in '{source_list}'. Available sources: {available}");
         }
 
         results = filtered;
@@ -239,6 +305,7 @@ fn cmd_rank(
             top,
         },
         sources: results,
+        source_tags: None,
     };
 
     println!("{}", output::render(&output, format)?);
@@ -410,6 +477,7 @@ fn cmd_check(
             top: None,
         },
         sources: filtered,
+        source_tags: None,
     };
 
     println!("{}", output::render(&output, format)?);
@@ -457,6 +525,7 @@ fn cmd_compare(
             top: None,
         },
         sources: filtered,
+        source_tags: None,
     };
 
     println!("{}", output::render(&output, format)?);
@@ -465,6 +534,17 @@ fn cmd_compare(
 
 fn cmd_sources(config: &Config, cache: &Cache, format: OutputFormat) -> Result<()> {
     let results = fetch_all(config, cache);
+    let source_tags = source_tag_map(config)
+        .into_iter()
+        .map(|(source, tags)| {
+            let names = tags
+                .iter()
+                .map(source_tag_name)
+                .map(str::to_string)
+                .collect();
+            (source, names)
+        })
+        .collect::<HashMap<_, _>>();
 
     let output = PondusOutput {
         timestamp: Utc::now(),
@@ -475,6 +555,7 @@ fn cmd_sources(config: &Config, cache: &Cache, format: OutputFormat) -> Result<(
             top: None,
         },
         sources: results,
+        source_tags: Some(source_tags),
     };
 
     println!("{}", output::render(&output, format)?);
