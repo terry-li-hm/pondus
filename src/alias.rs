@@ -60,6 +60,13 @@ impl AliasMap {
         Ok(Self { to_canonical })
     }
 
+    #[cfg(test)]
+    fn from_toml(toml_str: &str) -> Self {
+        let mut to_canonical = HashMap::new();
+        Self::parse_into(toml_str, &mut to_canonical).unwrap();
+        Self { to_canonical }
+    }
+
     fn parse_into(toml_str: &str, map: &mut HashMap<String, String>) -> Result<()> {
         let entries: HashMap<String, AliasEntry> = toml::from_str(toml_str)?;
         for (_, entry) in entries {
@@ -160,5 +167,105 @@ impl AliasMap {
         }
 
         best.map(|(_, canonical)| canonical)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_TOML: &str = r#"
+[gpt-o3]
+canonical = "o3"
+aliases = ["o3", "openai/o3"]
+
+[gpt-o3-pro]
+canonical = "o3-pro"
+aliases = ["o3-pro", "o3-pro (high)", "o3-pro-2025-06-10"]
+
+[gpt-o3-mini]
+canonical = "o3-mini"
+aliases = ["o3-mini", "o3-mini (high)"]
+
+[gpt-5_2]
+canonical = "gpt-5.2"
+aliases = ["GPT-5.2", "gpt-5.2-chat-latest"]
+"#;
+
+    fn map() -> AliasMap {
+        AliasMap::from_toml(TEST_TOML)
+    }
+
+    // --- Exact and alias matches ---
+
+    #[test]
+    fn exact_match() {
+        assert_eq!(map().resolve("o3"), "o3");
+    }
+
+    #[test]
+    fn alias_match() {
+        assert_eq!(map().resolve("openai/o3"), "o3");
+    }
+
+    // --- Parenthetical suffix: always allowed ---
+
+    #[test]
+    fn paren_suffix_resolves() {
+        // "o3 (high)" not in aliases → should prefix-match o3 via space boundary
+        assert_eq!(map().resolve("o3 (high)"), "o3");
+    }
+
+    #[test]
+    fn paren_direct_suffix_resolves() {
+        // "gpt-5.2(xhigh)" — '(' immediately after alias
+        assert_eq!(map().resolve("gpt-5.2(xhigh)"), "gpt-5.2");
+    }
+
+    // --- Hyphen + digit: allowed (date/version suffix) ---
+
+    #[test]
+    fn hyphen_digit_suffix_resolves() {
+        // "o3-2025-04-16" — '-' then digit → ok
+        assert_eq!(map().resolve("o3-2025-04-16"), "o3");
+    }
+
+    #[test]
+    fn hyphen_digit_suffix_on_longer_alias() {
+        // "gpt-5.2-chat-latest-20260210" — "gpt-5.2-chat-latest" is in aliases,
+        // then "-20260210" is a digit suffix → resolves via alias+prefix
+        assert_eq!(map().resolve("gpt-5.2-chat-latest-20260210"), "gpt-5.2");
+    }
+
+    // --- Hyphen + letter: NOT allowed (model variant) ---
+
+    #[test]
+    fn o3_does_not_match_o3_pro() {
+        // o3-pro has its own canonical — must NOT fall through to o3
+        assert_eq!(map().resolve("o3-pro"), "o3-pro");
+    }
+
+    #[test]
+    fn o3_does_not_match_o3_mini() {
+        assert_eq!(map().resolve("o3-mini"), "o3-mini");
+    }
+
+    #[test]
+    fn unknown_hyphen_letter_suffix_is_no_match() {
+        // "o3-turbo" not in aliases, and hyphen-letter prefix match is blocked
+        // → falls back to NoMatch, returns input lowercased
+        assert_eq!(map().resolve("o3-turbo"), "o3-turbo");
+    }
+
+    #[test]
+    fn gpt52_chat_latest_resolves_via_alias() {
+        assert_eq!(map().resolve("gpt-5.2-chat-latest"), "gpt-5.2");
+    }
+
+    // --- No-match ---
+
+    #[test]
+    fn completely_unknown_returns_itself() {
+        assert_eq!(map().resolve("unknown-model-xyz"), "unknown-model-xyz");
     }
 }

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pondus"
-version = "0.6.0"
+version = "0.6.1"
 description = "Opinionated AI model benchmark aggregator — install via cargo: cargo install pondus"
 readme = "README.md"
 license = "MIT"
