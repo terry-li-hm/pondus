@@ -49,6 +49,9 @@ enum Command {
         /// Produce a combined leaderboard across sources
         #[arg(long)]
         aggregate: bool,
+        /// Minimum number of sources a model must appear in (default: 2 when --aggregate is set)
+        #[arg(long)]
+        min_sources: Option<usize>,
     },
     /// Check a single model across all sources
     Check {
@@ -83,6 +86,7 @@ fn main() -> Result<()> {
         top: None,
         source: None,
         aggregate: false,
+        min_sources: None,
     });
 
     match command {
@@ -90,6 +94,7 @@ fn main() -> Result<()> {
             top,
             source,
             aggregate,
+            min_sources,
         } => cmd_rank(
             &config,
             &cache,
@@ -98,6 +103,7 @@ fn main() -> Result<()> {
             top,
             source.as_deref(),
             aggregate,
+            min_sources,
         ),
         Command::Check { model } => cmd_check(&config, &cache, &aliases, format, &model),
         Command::Compare { model1, model2 } => {
@@ -107,7 +113,7 @@ fn main() -> Result<()> {
         Command::Refresh => {
             cache.clear()?;
             eprintln!("Cache cleared. Re-fetching all sources...");
-            cmd_rank(&config, &cache, &aliases, format, None, None, false)
+            cmd_rank(&config, &cache, &aliases, format, None, None, false, None)
         }
     }
 }
@@ -144,6 +150,7 @@ fn cmd_rank(
     top: Option<usize>,
     source_filter: Option<&str>,
     aggregate: bool,
+    min_sources: Option<usize>,
 ) -> Result<()> {
     let mut results = fetch_all(config, cache);
 
@@ -169,7 +176,8 @@ fn cmd_rank(
     }
 
     if aggregate {
-        let mut aggregated = aggregate_results(results);
+        let threshold = min_sources.unwrap_or(2);
+        let mut aggregated = aggregate_results(results, threshold);
         if let Some(n) = top {
             aggregated.scores.truncate(n);
         }
@@ -195,7 +203,7 @@ fn cmd_rank(
     Ok(())
 }
 
-fn aggregate_results(results: Vec<SourceResult>) -> SourceResult {
+fn aggregate_results(results: Vec<SourceResult>, min_sources: usize) -> SourceResult {
     let mut totals: HashMap<String, (f64, usize)> = HashMap::new();
 
     for source in results {
@@ -220,7 +228,7 @@ fn aggregate_results(results: Vec<SourceResult>) -> SourceResult {
     let mut rows: Vec<(String, f64, usize)> = totals
         .into_iter()
         .filter_map(|(model, (sum, count))| {
-            if count == 0 {
+            if count < min_sources {
                 None
             } else {
                 Some((model, sum / count as f64, count))
