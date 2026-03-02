@@ -277,8 +277,15 @@ fn parse_scores_from_snapshot(text: &str) -> Vec<(String, f64)> {
 fn is_image_or_video_model(name: &str) -> bool {
     let lower = name.to_lowercase();
     let keywords = [
-        "flux-", "image", "imagine", "dall-e", "midjourney", "stable-diff", "ideogram",
-        "recraft", "video",
+        "flux-",
+        "image",
+        "imagine",
+        "dall-e",
+        "midjourney",
+        "stable-diff",
+        "ideogram",
+        "recraft",
+        "video",
     ];
     keywords.iter().any(|kw| lower.contains(kw))
 }

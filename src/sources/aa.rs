@@ -74,10 +74,7 @@ impl ArtificialAnalysis {
         // Parse API response into cache format
         let mut ranked: Vec<(String, f64)> = Vec::new();
         for model in payload.data {
-            let Some(score) = model
-                .evaluations
-                .artificial_analysis_intelligence_index
-            else {
+            let Some(score) = model.evaluations.artificial_analysis_intelligence_index else {
                 continue;
             };
             ranked.push((model.name, score));

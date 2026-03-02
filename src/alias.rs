@@ -12,6 +12,20 @@ struct AliasEntry {
     aliases: Vec<String>,
 }
 
+pub enum MatchKind {
+    Exact,
+    Alias,
+    Prefix,
+    NoMatch,
+}
+
+pub struct AliasMatch {
+    pub source_name: String,
+    pub source_model_name: String,
+    pub canonical: String,
+    pub match_kind: MatchKind,
+}
+
 pub struct AliasMap {
     /// source_name → canonical_name (also used for prefix matching)
     to_canonical: HashMap<String, String>,
@@ -63,25 +77,47 @@ impl AliasMap {
     /// Resolve a user-provided model name to its canonical form.
     /// Returns the input lowercased if no alias match found.
     pub fn resolve(&self, name: &str) -> String {
+        self.resolve_with_kind(name).0
+    }
+
+    fn resolve_with_kind(&self, name: &str) -> (String, MatchKind) {
         let lower = name.to_lowercase();
 
         // Exact match first
         if let Some(canonical) = self.to_canonical.get(&lower) {
-            return canonical.clone();
+            if canonical == &lower {
+                return (canonical.clone(), MatchKind::Exact);
+            }
+            return (canonical.clone(), MatchKind::Alias);
         }
 
         // Prefix match: "gpt-5-(high)" → "gpt-5" if next char after prefix is '-' or '('
         // But "gpt-5.2" should NOT match "gpt-5" (dot means different version)
         if let Some(canonical) = self.prefix_match(&lower) {
-            return canonical;
+            return (canonical, MatchKind::Prefix);
         }
 
-        lower
+        (lower, MatchKind::NoMatch)
     }
 
     /// Check if a source-specific model name matches a canonical name.
     pub fn matches(&self, source_name: &str, canonical: &str) -> bool {
         self.resolve(source_name) == canonical.to_lowercase()
+    }
+
+    pub fn explain(
+        &self,
+        source_name: &str,
+        source_model_name: &str,
+        canonical: &str,
+    ) -> AliasMatch {
+        let (_, match_kind) = self.resolve_with_kind(source_model_name);
+        AliasMatch {
+            source_name: source_name.to_string(),
+            source_model_name: source_model_name.to_string(),
+            canonical: canonical.to_string(),
+            match_kind,
+        }
     }
 
     /// Try prefix matching against known canonical names and aliases.

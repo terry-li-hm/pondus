@@ -5,7 +5,7 @@ mod models;
 mod output;
 mod sources;
 
-use alias::AliasMap;
+use alias::{AliasMap, MatchKind};
 use anyhow::Result;
 use cache::Cache;
 use chrono::Utc;
@@ -57,6 +57,8 @@ enum Command {
     Check {
         /// Model name (canonical or alias)
         model: String,
+        #[arg(long)]
+        show_matches: bool,
     },
     /// Compare two models head-to-head
     Compare {
@@ -105,7 +107,10 @@ fn main() -> Result<()> {
             aggregate,
             min_sources,
         ),
-        Command::Check { model } => cmd_check(&config, &cache, &aliases, format, &model),
+        Command::Check {
+            model,
+            show_matches,
+        } => cmd_check(&config, &cache, &aliases, format, &model, show_matches),
         Command::Compare { model1, model2 } => {
             cmd_compare(&config, &cache, &aliases, format, &model1, &model2)
         }
@@ -167,9 +172,7 @@ fn cmd_rank(
                 .map(|s| s.name().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            anyhow::bail!(
-                "Source not found: '{source_name}'. Available sources: {available}"
-            );
+            anyhow::bail!("Source not found: '{source_name}'. Available sources: {available}");
         }
 
         results = filtered;
@@ -249,7 +252,10 @@ fn aggregate_results(results: Vec<SourceResult>, min_sources: usize) -> SourceRe
             model: model.clone(),
             source_model_name: model,
             metrics: HashMap::from([
-                ("avg_percentile".to_string(), MetricValue::Float(avg_percentile)),
+                (
+                    "avg_percentile".to_string(),
+                    MetricValue::Float(avg_percentile),
+                ),
                 (
                     "sources_count".to_string(),
                     MetricValue::Int(sources_count as i64),
@@ -273,10 +279,12 @@ fn cmd_check(
     aliases: &AliasMap,
     format: OutputFormat,
     model: &str,
+    show_matches: bool,
 ) -> Result<()> {
     let canonical = aliases.resolve(model);
     let results = fetch_all(config, cache);
 
+    let mut match_lines = Vec::new();
     let filtered: Vec<_> = results
         .into_iter()
         .map(|mut r| {
@@ -284,9 +292,26 @@ fn cmd_check(
                 s.model.to_lowercase() == canonical
                     || aliases.matches(&s.source_model_name, &canonical)
             });
+            if show_matches {
+                for s in &r.scores {
+                    match_lines.push(aliases.explain(&r.source, &s.source_model_name, &canonical));
+                }
+            }
             r
         })
         .collect();
+
+    if show_matches {
+        for m in match_lines {
+            eprintln!(
+                "[{}]   {:?}  ->  {:?}  ({})",
+                m.source_name,
+                m.source_model_name,
+                m.canonical,
+                match_kind_str(&m.match_kind)
+            );
+        }
+    }
 
     let output = PondusOutput {
         timestamp: Utc::now(),
@@ -301,6 +326,15 @@ fn cmd_check(
 
     println!("{}", output::render(&output, format)?);
     Ok(())
+}
+
+fn match_kind_str(kind: &MatchKind) -> &'static str {
+    match kind {
+        MatchKind::Exact => "exact",
+        MatchKind::Alias => "alias",
+        MatchKind::Prefix => "prefix",
+        MatchKind::NoMatch => "no-match",
+    }
 }
 
 fn cmd_compare(
