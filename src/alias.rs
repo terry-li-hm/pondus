@@ -121,16 +121,36 @@ impl AliasMap {
     }
 
     /// Try prefix matching against known canonical names and aliases.
-    /// Matches if name starts with a known name followed by '-' or '('.
+    /// Matches if name starts with a known alias followed by a qualifier suffix.
     /// Returns the longest matching canonical name to avoid short-prefix collisions.
+    ///
+    /// Allowed suffixes:
+    ///   `(` or ` ` — parenthetical qualifier, e.g. `claude-opus-4.5 (reasoning)` → ok
+    ///   `-` followed by a digit — date/version suffix, e.g. `gpt-5.2-2025-04-16` → ok
+    ///   `-` followed by a letter — model variant, e.g. `o3-pro`, `o3-mini` → NOT ok
+    ///
+    /// The letter-after-hyphen rule prevents short names like `o3` from swallowing
+    /// genuinely distinct models (`o3-pro`, `o3-mini`). Add explicit aliases in
+    /// models.toml for deployment-name patterns like `gpt-5.2-chat-latest`.
     fn prefix_match(&self, lower_name: &str) -> Option<String> {
         let mut best: Option<(usize, String)> = None;
 
         for (alias, canonical) in &self.to_canonical {
             if lower_name.len() > alias.len() && lower_name.starts_with(alias.as_str()) {
                 let next_char = lower_name.as_bytes()[alias.len()];
-                // Only match if followed by separator, not version dot
-                if next_char == b'-' || next_char == b'(' || next_char == b' ' {
+                let allowed = match next_char {
+                    b'(' | b' ' => true,
+                    b'-' => {
+                        // Only allow if the char after the hyphen is a digit
+                        // (date/version suffix), not a letter (model variant)
+                        lower_name
+                            .as_bytes()
+                            .get(alias.len() + 1)
+                            .is_some_and(|c| c.is_ascii_digit())
+                    }
+                    _ => false,
+                };
+                if allowed {
                     let len = alias.len();
                     if best.as_ref().is_none_or(|(best_len, _)| len > *best_len) {
                         best = Some((len, canonical.clone()));
