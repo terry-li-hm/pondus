@@ -11,9 +11,11 @@ use cache::Cache;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use config::Config;
-use models::{PondusOutput, QueryInfo};
+use models::{MetricValue, ModelScore, PondusOutput, QueryInfo, SourceResult, SourceStatus};
 use output::OutputFormat;
 use sources::Source;
+use std::cmp::Ordering;
+use std::collections::HashMap;
 
 #[derive(Parser)]
 #[command(
@@ -41,6 +43,12 @@ enum Command {
         /// Show top N models
         #[arg(long)]
         top: Option<usize>,
+        /// Filter to a single source name (case-insensitive)
+        #[arg(long)]
+        source: Option<String>,
+        /// Produce a combined leaderboard across sources
+        #[arg(long)]
+        aggregate: bool,
     },
     /// Check a single model across all sources
     Check {
@@ -71,10 +79,26 @@ fn main() -> Result<()> {
         cache.clear()?;
     }
 
-    let command = cli.command.unwrap_or(Command::Rank { top: None });
+    let command = cli.command.unwrap_or(Command::Rank {
+        top: None,
+        source: None,
+        aggregate: false,
+    });
 
     match command {
-        Command::Rank { top } => cmd_rank(&config, &cache, &aliases, format, top),
+        Command::Rank {
+            top,
+            source,
+            aggregate,
+        } => cmd_rank(
+            &config,
+            &cache,
+            &aliases,
+            format,
+            top,
+            source.as_deref(),
+            aggregate,
+        ),
         Command::Check { model } => cmd_check(&config, &cache, &aliases, format, &model),
         Command::Compare { model1, model2 } => {
             cmd_compare(&config, &cache, &aliases, format, &model1, &model2)
@@ -83,7 +107,7 @@ fn main() -> Result<()> {
         Command::Refresh => {
             cache.clear()?;
             eprintln!("Cache cleared. Re-fetching all sources...");
-            cmd_rank(&config, &cache, &aliases, format, None)
+            cmd_rank(&config, &cache, &aliases, format, None, None, false)
         }
     }
 }
@@ -118,9 +142,39 @@ fn cmd_rank(
     _aliases: &AliasMap,
     format: OutputFormat,
     top: Option<usize>,
+    source_filter: Option<&str>,
+    aggregate: bool,
 ) -> Result<()> {
     let mut results = fetch_all(config, cache);
-    if let Some(n) = top {
+
+    if let Some(source_name) = source_filter {
+        let needle = source_name.to_lowercase();
+        let filtered: Vec<_> = results
+            .into_iter()
+            .filter(|r| r.source.to_lowercase() == needle)
+            .collect();
+
+        if filtered.is_empty() {
+            let available = get_sources()
+                .into_iter()
+                .map(|s| s.name().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!(
+                "Source not found: '{source_name}'. Available sources: {available}"
+            );
+        }
+
+        results = filtered;
+    }
+
+    if aggregate {
+        let mut aggregated = aggregate_results(results);
+        if let Some(n) = top {
+            aggregated.scores.truncate(n);
+        }
+        results = vec![aggregated];
+    } else if let Some(n) = top {
         for result in &mut results {
             result.scores.truncate(n);
         }
@@ -139,6 +193,70 @@ fn cmd_rank(
 
     println!("{}", output::render(&output, format)?);
     Ok(())
+}
+
+fn aggregate_results(results: Vec<SourceResult>) -> SourceResult {
+    let mut totals: HashMap<String, (f64, usize)> = HashMap::new();
+
+    for source in results {
+        let total_in_source = source.scores.len();
+        if total_in_source == 0 {
+            continue;
+        }
+
+        let total = total_in_source as f64;
+        for score in source.scores {
+            let Some(rank) = score.rank else {
+                continue;
+            };
+
+            let percentile = 1.0 - ((rank as f64 - 1.0) / total);
+            let entry = totals.entry(score.model).or_insert((0.0, 0));
+            entry.0 += percentile;
+            entry.1 += 1;
+        }
+    }
+
+    let mut rows: Vec<(String, f64, usize)> = totals
+        .into_iter()
+        .filter_map(|(model, (sum, count))| {
+            if count == 0 {
+                None
+            } else {
+                Some((model, sum / count as f64, count))
+            }
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    let scores = rows
+        .into_iter()
+        .enumerate()
+        .map(|(i, (model, avg_percentile, sources_count))| ModelScore {
+            model: model.clone(),
+            source_model_name: model,
+            metrics: HashMap::from([
+                ("avg_percentile".to_string(), MetricValue::Float(avg_percentile)),
+                (
+                    "sources_count".to_string(),
+                    MetricValue::Int(sources_count as i64),
+                ),
+            ]),
+            rank: Some((i + 1) as u32),
+        })
+        .collect();
+
+    SourceResult {
+        source: "aggregate".to_string(),
+        fetched_at: None,
+        status: SourceStatus::Ok,
+        scores,
+    }
 }
 
 fn cmd_check(

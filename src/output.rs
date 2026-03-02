@@ -54,6 +54,8 @@ fn render_table(output: &PondusOutput) -> Result<String> {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+        let mut all_metrics = all_metrics;
+        all_metrics.sort();
 
         let mut columns: Vec<String> = vec!["Rank".to_string(), "Model".to_string()];
         columns.extend(all_metrics.clone());
@@ -71,7 +73,7 @@ fn render_table(output: &PondusOutput) -> Result<String> {
                 let val = score
                     .metrics
                     .get(metric)
-                    .map(format_metric)
+                    .map(|v| format_metric(metric, v))
                     .unwrap_or_else(|| "-".to_string());
                 row.push(val);
             }
@@ -147,6 +149,8 @@ fn render_markdown(output: &PondusOutput) -> Result<String> {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+        let mut all_metrics = all_metrics;
+        all_metrics.sort();
 
         let mut columns: Vec<String> = vec!["Rank".to_string(), "Model".to_string()];
         columns.extend(all_metrics.clone());
@@ -171,7 +175,7 @@ fn render_markdown(output: &PondusOutput) -> Result<String> {
                 let val = score
                     .metrics
                     .get(metric)
-                    .map(format_metric)
+                    .map(|v| format_metric(metric, v))
                     .unwrap_or_else(|| "-".to_string());
                 row.push(val);
             }
@@ -193,9 +197,15 @@ fn format_status(status: &SourceStatus) -> String {
     }
 }
 
-fn format_metric(value: &MetricValue) -> String {
+fn format_metric(metric_name: &str, value: &MetricValue) -> String {
     match value {
-        MetricValue::Float(f) => format!("{:.2}", f),
+        MetricValue::Float(f) => {
+            if metric_name == "avg_percentile" {
+                format!("{:.3}", f)
+            } else {
+                format!("{:.2}", f)
+            }
+        }
         MetricValue::Int(i) => i.to_string(),
         MetricValue::Text(t) => t.clone(),
     }
