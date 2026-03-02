@@ -564,7 +564,56 @@ fn cmd_sources(config: &Config, cache: &Cache, format: OutputFormat) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::percentile;
+    use super::{
+        aggregate_results, parse_source_tag, percentile, std_dev, MetricValue, ModelScore,
+        SourceResult, SourceStatus, SourceTag,
+    };
+    use std::collections::HashMap;
+
+    fn make_source_with_ranked_model(source: &str, model: &str, rank: u32, total: usize) -> SourceResult {
+        let mut scores = Vec::with_capacity(total);
+        scores.push(ModelScore {
+            model: model.to_string(),
+            source_model_name: model.to_string(),
+            metrics: HashMap::new(),
+            rank: Some(rank),
+        });
+
+        for i in 1..total {
+            let filler_rank = if i as u32 >= rank { i as u32 + 1 } else { i as u32 };
+            scores.push(ModelScore {
+                model: format!("filler-{source}-{i}"),
+                source_model_name: format!("filler-{source}-{i}"),
+                metrics: HashMap::new(),
+                rank: Some(filler_rank),
+            });
+        }
+
+        SourceResult {
+            source: source.to_string(),
+            fetched_at: None,
+            status: SourceStatus::Ok,
+            scores,
+        }
+    }
+
+    fn find_model<'a>(scores: &'a [ModelScore], model: &str) -> &'a ModelScore {
+        scores.iter().find(|s| s.model == model).unwrap()
+    }
+
+    fn metric_float(score: &ModelScore, name: &str) -> f64 {
+        match score.metrics.get(name).unwrap() {
+            MetricValue::Float(v) => *v,
+            _ => panic!("metric {name} is not float"),
+        }
+    }
+
+    fn metric_int(score: &ModelScore, name: &str) -> i64 {
+        match score.metrics.get(name).unwrap() {
+            MetricValue::Int(v) => *v,
+            _ => panic!("metric {name} is not int"),
+        }
+    }
 
     #[test]
     fn percentile_rank_1_of_10_is_1() {
@@ -585,5 +634,107 @@ mod tests {
     fn percentile_rank_5_of_10_matches_expected_formula() {
         let expected = (10.0 - 5.0) / (10.0 - 1.0);
         assert!((percentile(5, 10) - expected).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn two_sources_correct_average() {
+        let model = "model-a";
+        let source_a = make_source_with_ranked_model("source-a", model, 1, 10);
+        let source_b = make_source_with_ranked_model("source-b", model, 5, 10);
+
+        let (aggregated, excluded) = aggregate_results(vec![source_a, source_b], 2, false);
+        assert!(excluded.is_empty());
+
+        let score = find_model(&aggregated.scores, model);
+        let expected = (1.0 + (5.0 / 9.0)) / 2.0;
+        assert!((metric_float(score, "avg_percentile") - expected).abs() < 0.001);
+        assert_eq!(metric_int(score, "sources_count"), 2);
+    }
+
+    #[test]
+    fn min_sources_filters() {
+        let model_a = "model-a";
+        let model_b = "model-b";
+
+        let mut source_a = make_source_with_ranked_model("source-a", model_a, 1, 10);
+        source_a.scores[1] = ModelScore {
+            model: model_b.to_string(),
+            source_model_name: model_b.to_string(),
+            metrics: HashMap::new(),
+            rank: Some(2),
+        };
+        let source_b = make_source_with_ranked_model("source-b", model_a, 3, 10);
+
+        let (aggregated, excluded) = aggregate_results(vec![source_a, source_b], 2, true);
+
+        assert!(aggregated.scores.iter().all(|s| s.model != model_b));
+        assert!(excluded.iter().any(|(m, c)| m == model_b && *c == 1));
+    }
+
+    #[test]
+    fn spread_single_source_is_zero() {
+        let model = "model-a";
+        let source = make_source_with_ranked_model("source-a", model, 4, 10);
+
+        let (aggregated, _) = aggregate_results(vec![source], 1, false);
+        let score = find_model(&aggregated.scores, model);
+        assert!((metric_float(score, "spread") - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn spread_two_sources() {
+        let model = "model-a";
+        let source_a = make_source_with_ranked_model("source-a", model, 1, 10);
+        let source_b = make_source_with_ranked_model("source-b", model, 5, 10);
+
+        let (aggregated, _) = aggregate_results(vec![source_a, source_b], 2, false);
+        let score = find_model(&aggregated.scores, model);
+        let expected = 0.222;
+        assert!((metric_float(score, "spread") - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn show_excluded_false_returns_empty() {
+        let model_a = "model-a";
+        let model_b = "model-b";
+
+        let mut source_a = make_source_with_ranked_model("source-a", model_a, 1, 10);
+        source_a.scores[1] = ModelScore {
+            model: model_b.to_string(),
+            source_model_name: model_b.to_string(),
+            metrics: HashMap::new(),
+            rank: Some(2),
+        };
+        let source_b = make_source_with_ranked_model("source-b", model_a, 3, 10);
+
+        let (_, excluded) = aggregate_results(vec![source_a, source_b], 2, false);
+        assert!(excluded.is_empty());
+    }
+
+    #[test]
+    fn parse_source_tag_valid() {
+        assert!(matches!(
+            parse_source_tag("reasoning"),
+            Some(SourceTag::Reasoning)
+        ));
+        assert!(matches!(parse_source_tag("coding"), Some(SourceTag::Coding)));
+        assert!(matches!(parse_source_tag("agentic"), Some(SourceTag::Agentic)));
+        assert!(matches!(parse_source_tag("general"), Some(SourceTag::General)));
+        assert!(matches!(
+            parse_source_tag("REASONING"),
+            Some(SourceTag::Reasoning)
+        ));
+    }
+
+    #[test]
+    fn parse_source_tag_invalid() {
+        assert!(parse_source_tag("unknown").is_none());
+        assert!(parse_source_tag("").is_none());
+    }
+
+    #[test]
+    fn std_dev_known_values() {
+        assert!((std_dev(&[1.0, 3.0]) - 1.0).abs() < f64::EPSILON);
+        assert!((std_dev(&[1.0]) - 0.0).abs() < f64::EPSILON);
     }
 }
