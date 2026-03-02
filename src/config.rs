@@ -7,6 +7,8 @@ use std::path::PathBuf;
 pub struct Config {
     #[serde(default)]
     pub sources: HashMap<String, SourceConfig>,
+    #[serde(default, skip)]
+    pub source_tags: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub cache: CacheConfig,
     #[serde(default)]
@@ -62,6 +64,8 @@ impl Config {
             config.aa_api_key = Some(env_api_key);
         }
 
+        config.source_tags = load_source_tags()?;
+
         Ok(config)
     }
 
@@ -97,4 +101,31 @@ fn config_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("pondus")
         .join("config.toml")
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SourceTagsSection {
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+fn load_source_tags() -> Result<HashMap<String, Vec<String>>> {
+    let path = sources_path();
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+
+    let content = std::fs::read_to_string(path)?;
+    let parsed: HashMap<String, SourceTagsSection> = toml::from_str(&content)?;
+    Ok(parsed
+        .into_iter()
+        .map(|(source, section)| (source, section.tags))
+        .collect())
+}
+
+fn sources_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("pondus")
+        .join("sources.toml")
 }

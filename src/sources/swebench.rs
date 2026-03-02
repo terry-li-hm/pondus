@@ -1,6 +1,6 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -8,10 +8,15 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub struct SweBench;
+static TAGS: &[SourceTag] = &[SourceTag::Coding];
 
 impl Source for SweBench {
     fn name(&self) -> &str {
         "swebench"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, _config: &Config, cache: &Cache) -> Result<SourceResult> {

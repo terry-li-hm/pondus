@@ -10,11 +10,12 @@ pub mod tbench;
 
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::SourceResult;
+use crate::models::{SourceResult, SourceTag};
 use anyhow::Result;
 
 pub trait Source {
     fn name(&self) -> &str;
+    fn tags(&self) -> &'static [SourceTag];
     fn fetch(&self, config: &Config, cache: &Cache) -> Result<SourceResult>;
 }
 

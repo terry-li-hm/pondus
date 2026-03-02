@@ -10,6 +10,15 @@ pub struct SourceResult {
     pub scores: Vec<ModelScore>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceTag {
+    Reasoning,
+    Coding,
+    Agentic,
+    General,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceStatus {
@@ -40,6 +49,8 @@ pub struct PondusOutput {
     pub timestamp: DateTime<Utc>,
     pub query: QueryInfo,
     pub sources: Vec<SourceResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_tags: Option<HashMap<String, Vec<String>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

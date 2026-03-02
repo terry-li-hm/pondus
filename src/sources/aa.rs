@@ -1,6 +1,6 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -10,10 +10,15 @@ use std::process::Command;
 use std::time::Duration;
 
 pub struct ArtificialAnalysis;
+static TAGS: &[SourceTag] = &[SourceTag::Reasoning, SourceTag::General];
 
 impl Source for ArtificialAnalysis {
     fn name(&self) -> &str {
         "artificial-analysis"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, config: &Config, cache: &Cache) -> Result<SourceResult> {
@@ -74,10 +79,7 @@ impl ArtificialAnalysis {
         // Parse API response into cache format
         let mut ranked: Vec<(String, f64)> = Vec::new();
         for model in payload.data {
-            let Some(score) = model
-                .evaluations
-                .artificial_analysis_intelligence_index
-            else {
+            let Some(score) = model.evaluations.artificial_analysis_intelligence_index else {
                 continue;
             };
             ranked.push((model.name, score));

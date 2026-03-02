@@ -1,16 +1,21 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::Result;
 use chrono::Utc;
 use std::collections::HashMap;
 
 pub struct MockSource;
+static TAGS: &[SourceTag] = &[];
 
 impl Source for MockSource {
     fn name(&self) -> &str {
         "mock"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, _config: &Config, _cache: &Cache) -> Result<SourceResult> {

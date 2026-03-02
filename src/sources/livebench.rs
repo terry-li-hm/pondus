@@ -1,6 +1,6 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::Result;
 use chrono::Utc;
@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub struct LiveBench;
+static TAGS: &[SourceTag] = &[SourceTag::Reasoning];
 
 const BATCH_SIZE: usize = 100;
 const HF_ROWS_URL: &str = "https://datasets-server.huggingface.co/rows";
@@ -15,6 +16,10 @@ const HF_ROWS_URL: &str = "https://datasets-server.huggingface.co/rows";
 impl Source for LiveBench {
     fn name(&self) -> &str {
         "livebench"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, _config: &Config, cache: &Cache) -> Result<SourceResult> {

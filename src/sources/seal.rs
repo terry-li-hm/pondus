@@ -1,6 +1,6 @@
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus};
+use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag};
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -8,10 +8,15 @@ use std::collections::HashMap;
 use std::process::Command;
 
 pub struct Seal;
+static TAGS: &[SourceTag] = &[SourceTag::Reasoning];
 
 impl Source for Seal {
     fn name(&self) -> &str {
         "seal"
+    }
+
+    fn tags(&self) -> &'static [SourceTag] {
+        TAGS
     }
 
     fn fetch(&self, config: &Config, cache: &Cache) -> Result<SourceResult> {
@@ -261,9 +266,8 @@ fn extract_model_scores(text: &str) -> Vec<(String, f64)> {
         };
 
         // Find the rank (first small integer in the search window)
-        let rank_pos = (search_start..score_pos).find(|&j| {
-            tokens[j].parse::<u32>().is_ok_and(|n| n <= 500)
-        });
+        let rank_pos =
+            (search_start..score_pos).find(|&j| tokens[j].parse::<u32>().is_ok_and(|n| n <= 500));
 
         let name_start = match rank_pos {
             Some(rp) => rp + 1,

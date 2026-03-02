@@ -24,8 +24,20 @@ impl OutputFormat {
 pub fn render(output: &PondusOutput, format: OutputFormat) -> Result<String> {
     match format {
         OutputFormat::Json => render_json(output),
-        OutputFormat::Table => render_table(output),
-        OutputFormat::Markdown => render_markdown(output),
+        OutputFormat::Table => {
+            if output.query.query_type == "sources" {
+                render_sources_table(output)
+            } else {
+                render_table(output)
+            }
+        }
+        OutputFormat::Markdown => {
+            if output.query.query_type == "sources" {
+                render_sources_markdown(output)
+            } else {
+                render_markdown(output)
+            }
+        }
     }
 }
 
@@ -123,6 +135,65 @@ fn render_table(output: &PondusOutput) -> Result<String> {
     Ok(result.trim_end().to_string())
 }
 
+fn render_sources_table(output: &PondusOutput) -> Result<String> {
+    let columns = ["Source", "Status", "Tags"];
+    let mut widths = columns.map(str::len);
+
+    let mut rows: Vec<[String; 3]> = Vec::new();
+    for source in &output.sources {
+        let tags = output
+            .source_tags
+            .as_ref()
+            .and_then(|m| m.get(&source.source.to_lowercase()))
+            .map(|tags| {
+                if tags.is_empty() {
+                    "-".to_string()
+                } else {
+                    tags.join(", ")
+                }
+            })
+            .unwrap_or_else(|| "-".to_string());
+
+        let status = format_status(&source.status);
+        let row = [source.source.clone(), status, tags];
+        for (i, cell) in row.iter().enumerate() {
+            widths[i] = widths[i].max(cell.len());
+        }
+        rows.push(row);
+    }
+
+    let mut result = String::new();
+    let header = columns
+        .iter()
+        .enumerate()
+        .map(|(i, c)| pad(c, widths[i]))
+        .collect::<Vec<_>>()
+        .join("  ");
+    result.push_str(&header);
+    result.push('\n');
+
+    let separator = widths
+        .iter()
+        .map(|w| "-".repeat(*w))
+        .collect::<Vec<_>>()
+        .join("  ");
+    result.push_str(&separator);
+    result.push('\n');
+
+    for row in rows {
+        let line = row
+            .iter()
+            .enumerate()
+            .map(|(i, c)| pad(c, widths[i]))
+            .collect::<Vec<_>>()
+            .join("  ");
+        result.push_str(&line);
+        result.push('\n');
+    }
+
+    Ok(result.trim_end().to_string())
+}
+
 fn render_markdown(output: &PondusOutput) -> Result<String> {
     let mut result = String::new();
 
@@ -183,6 +254,38 @@ fn render_markdown(output: &PondusOutput) -> Result<String> {
         }
 
         result.push('\n');
+    }
+
+    Ok(result.trim_end().to_string())
+}
+
+fn render_sources_markdown(output: &PondusOutput) -> Result<String> {
+    let mut result = String::new();
+    result.push_str("| Source | Status | Tags |\n");
+    result.push_str("| --- | --- | --- |\n");
+
+    for source in &output.sources {
+        let tags = output
+            .source_tags
+            .as_ref()
+            .and_then(|m| m.get(&source.source.to_lowercase()))
+            .map(|tags| {
+                if tags.is_empty() {
+                    "-".to_string()
+                } else {
+                    tags.join(", ")
+                }
+            })
+            .unwrap_or_else(|| "-".to_string());
+
+        let status = match &source.status {
+            SourceStatus::Ok => "OK".to_string(),
+            SourceStatus::Cached => "Cached".to_string(),
+            SourceStatus::Unavailable => "Unavailable".to_string(),
+            SourceStatus::Error(e) => format!("Error: {}", e),
+        };
+
+        result.push_str(&format!("| {} | {} | {} |\n", source.source, status, tags));
     }
 
     Ok(result.trim_end().to_string())
