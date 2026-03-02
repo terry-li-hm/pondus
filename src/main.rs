@@ -314,6 +314,11 @@ fn cmd_rank(
         }
     }
 
+    // LiveBench dataset has been frozen since April 2025 — always warn when it's in scope
+    if results.iter().any(|r| r.source == "livebench" && !r.scores.is_empty()) {
+        eprintln!("[livebench] dataset frozen since April 2025 — scores are stale");
+    }
+
     if aggregate {
         let threshold = min_sources.unwrap_or(2);
         let excluded_for_count = if show_excluded {
