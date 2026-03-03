@@ -41,7 +41,7 @@ impl Arena {
         let agent_browser = config.agent_browser_path();
 
         if let Err(err) =
-            run_agent_browser(agent_browser, &["open", "https://lmarena.ai/leaderboard"])
+            run_agent_browser(agent_browser, &["open", "https://lmarena.ai/leaderboard/text"])
         {
             return Ok(map_command_error(self.name(), "open", err));
         }
@@ -184,17 +184,20 @@ impl Arena {
 
 /// Parse Arena leaderboard from agent-browser accessibility snapshot.
 ///
-/// The first table on the page is the "Text" leaderboard. Rows look like:
+/// Targets `/leaderboard/text` which lists all text models (not just top 10).
+/// As of 2026-03, the table has 5 columns. Rows look like:
 /// ```text
-/// - row "1 Anthropic claude-opus-4-6-thinking 1503 6,583":
-///   - cell "1" [ref=...]
-///   - cell "Anthropic claude-opus-4-6-thinking" [ref=...]:
+/// - row "1 1 4 Anthropic claude-opus-4-6-thinking Anthropic · Proprietary 1503 ±8 6,583":
+///   - cell "1" [ref=...]                       ← Rank
+///   - cell "1 4" [ref=...]                     ← Prev rank + weeks in position
+///   - cell "Anthropic claude-opus-4-6-thinking Anthropic · Proprietary" [ref=...]:
 ///     - link "claude-opus-4-6-thinking" [ref=...]:
-///   - cell "1503" [ref=...]
-///   - cell "6,583" [ref=...]
+///   - cell "1503 ±8" [ref=...]                 ← ELO ± CI (sometimes "1500 ±9 Preliminary")
+///   - cell "6,583" [ref=...]                   ← Votes
 /// ```
 ///
-/// We extract the model name from the link inside cell 1, and ELO from cell 2.
+/// We extract the model name from the link inside cell 2, and ELO from cell 3
+/// (taking only the numeric prefix before the space, discarding "±…" and "Preliminary").
 fn parse_scores_from_snapshot(text: &str) -> Vec<(String, f64)> {
     let mut results: HashMap<String, f64> = HashMap::new();
     let lines: Vec<&str> = text.lines().collect();
@@ -203,12 +206,6 @@ fn parse_scores_from_snapshot(text: &str) -> Vec<(String, f64)> {
 
     while i < lines.len() {
         let trimmed = lines[i].trim();
-
-        // Only parse rows from the first table (Text leaderboard)
-        // Stop when we hit a second table or "View all" section
-        if found_first_table && trimmed.starts_with("- link \"") && trimmed.contains("View all") {
-            break;
-        }
 
         if trimmed.starts_with("- row \"") && trimmed.contains("1503")
             || trimmed.starts_with("- row \"1 ")
@@ -228,7 +225,7 @@ fn parse_scores_from_snapshot(text: &str) -> Vec<(String, f64)> {
                         cells.push(val);
                     }
                 } else if cell_line.starts_with("- link \"") && model_link_name.is_none() {
-                    // The model name link is inside the second cell
+                    // The model name link is inside cell 2 (index 2)
                     if let Some(val) = extract_cell_value(cell_line)
                         && !val.starts_with("http")
                         && !val.is_empty()
@@ -241,13 +238,13 @@ fn parse_scores_from_snapshot(text: &str) -> Vec<(String, f64)> {
                 j += 1;
             }
 
-            // Cells: 0=Rank, 1=Provider+Model, 2=ELO, 3=Votes
-            if cells.len() >= 3 {
-                // Prefer the link name (cleaner), fall back to cell text
+            // 5-column layout: 0=Rank, 1=RankSpread, 2=Provider+Model, 3=ELO±CI, 4=Votes
+            // ELO cell value is "1503 ±8" or "1500 ±9 Preliminary" — take first token.
+            if cells.len() >= 4 {
+                let elo_str = cells[3].split_whitespace().next().unwrap_or("");
+                // Prefer the link name (cleaner), fall back to stripping provider from cell text
                 let model_name = model_link_name.unwrap_or_else(|| {
-                    // Strip provider prefix from cell text
-                    let cell = &cells[1];
-                    // Common providers: "Anthropic ", "Bytedance ", etc.
+                    let cell = &cells[2];
                     cell.split_whitespace()
                         .skip_while(|t| {
                             t.chars().next().is_some_and(|c| c.is_uppercase())
@@ -258,7 +255,7 @@ fn parse_scores_from_snapshot(text: &str) -> Vec<(String, f64)> {
                         .join(" ")
                 });
 
-                if let Ok(elo) = cells[2].parse::<f64>()
+                if let Ok(elo) = elo_str.parse::<f64>()
                     && elo > 500.0
                     && !model_name.is_empty()
                 {
