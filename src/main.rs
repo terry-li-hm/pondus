@@ -8,7 +8,7 @@ mod sources;
 use alias::{AliasMap, MatchKind};
 use anyhow::Result;
 use cache::Cache;
-use chrono::{Duration, Utc};
+use chrono::{Duration, Local, Utc};
 use clap::{Parser, Subcommand};
 use config::Config;
 use models::{
@@ -18,6 +18,7 @@ use output::OutputFormat;
 use sources::Source;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::thread;
 
 #[derive(Parser)]
 #[command(
@@ -84,6 +85,17 @@ enum Command {
         /// Second model
         model2: String,
     },
+    /// Watch a model across all sources until all have data
+    Watch {
+        /// Model name (canonical or alias)
+        model: String,
+        /// Interval in seconds for polling (default: 3600 if not --once)
+        #[arg(long)]
+        interval: Option<u64>,
+        /// Run once and exit with status code 1 if any source is missing data
+        #[arg(long)]
+        once: bool,
+    },
     /// List all sources and their status
     Sources,
     /// Force re-fetch all sources (clears cache)
@@ -146,6 +158,11 @@ fn main() -> Result<()> {
         Command::Compare { model1, model2 } => {
             cmd_compare(&config, &cache, &aliases, format, &model1, &model2)
         }
+        Command::Watch {
+            model,
+            interval,
+            once,
+        } => cmd_watch(&config, &cache, &aliases, &model, interval, once),
         Command::Sources => cmd_sources(&config, &cache, format),
         Command::Refresh => {
             cache.clear()?;
@@ -555,6 +572,99 @@ fn cmd_check(
 
     println!("{}", output::render(&output, format)?);
     Ok(())
+}
+
+fn cmd_watch(
+    config: &Config,
+    cache: &Cache,
+    aliases: &AliasMap,
+    model: &str,
+    interval: Option<u64>,
+    once: bool,
+) -> Result<()> {
+    let canonical = aliases.resolve(model);
+    let interval_secs = interval.unwrap_or(3600);
+
+    loop {
+        let results = fetch_all(config, cache);
+        let mut covered = 0;
+        let total_sources = results.len();
+        let mut status_lines = Vec::new();
+
+        for r in &results {
+            let matched_score = r.scores.iter().find(|s| {
+                s.model.to_lowercase() == canonical
+                    || aliases.matches(&s.source_model_name, &canonical)
+            });
+
+            if let Some(s) = matched_score {
+                covered += 1;
+                let rank_str = match s.rank {
+                    Some(r_val) => format!("rank {}/{}", r_val, r.scores.len()),
+                    None => "no rank".to_string(),
+                };
+
+                let mut metric_parts = Vec::new();
+                for (name, val) in &s.metrics {
+                    if name == "rank" {
+                        continue;
+                    }
+                    let val_str = match val {
+                        MetricValue::Float(f) => {
+                            if name.contains("percentile") || name.contains("spread") {
+                                format!("{:.3}", f)
+                            } else {
+                                format!("{:.2}", f)
+                            }
+                        }
+                        MetricValue::Int(i) => i.to_string(),
+                        MetricValue::Text(t) => t.clone(),
+                    };
+                    metric_parts.push(format!("{} {}", name, val_str));
+                }
+                metric_parts.sort();
+                let metrics_str = if metric_parts.is_empty() {
+                    "".to_string()
+                } else {
+                    format!(", {}", metric_parts.join(", "))
+                };
+
+                status_lines.push(format!("  {:<13} ✓  {}{}", r.source, rank_str, metrics_str));
+            } else {
+                status_lines.push(format!("  {:<13} ✗  not yet indexed", r.source));
+            }
+        }
+
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S %Z");
+        println!(
+            "Watching: {}  [{}/{} sources]  {}",
+            model, covered, total_sources, now
+        );
+        println!();
+        for line in status_lines {
+            println!("{}", line);
+        }
+        println!();
+
+        if covered == total_sources {
+            println!("All {} sources have data for {}.", total_sources, model);
+            std::process::exit(0);
+        }
+
+        if once {
+            println!("{} of {} sources have data.", covered, total_sources);
+            std::process::exit(1);
+        }
+
+        println!(
+            "{} of {} sources have data. Rechecking in {}s...",
+            covered, total_sources, interval_secs
+        );
+        thread::sleep(std::time::Duration::from_secs(interval_secs));
+
+        cache.clear()?;
+        println!("\n---\n");
+    }
 }
 
 fn match_kind_str(kind: &MatchKind) -> &'static str {
