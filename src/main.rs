@@ -2,6 +2,7 @@ mod alias;
 mod cache;
 mod config;
 mod models;
+mod monitor;
 mod output;
 mod sources;
 
@@ -14,6 +15,7 @@ use config::Config;
 use models::{
     MetricValue, ModelScore, PondusOutput, QueryInfo, SourceResult, SourceStatus, SourceTag,
 };
+use monitor::MonitorCommand;
 use output::OutputFormat;
 use sources::Source;
 use std::cmp::Ordering;
@@ -96,6 +98,11 @@ enum Command {
         #[arg(long)]
         once: bool,
     },
+    /// Monitor models for new benchmark data
+    Monitor {
+        #[command(subcommand)]
+        subcommand: MonitorCommand,
+    },
     /// List all sources and their status
     Sources,
     /// Force re-fetch all sources (clears cache)
@@ -163,6 +170,9 @@ fn main() -> Result<()> {
             interval,
             once,
         } => cmd_watch(&config, &cache, &aliases, &model, interval, once),
+        Command::Monitor { subcommand } => {
+            monitor::handle_command(subcommand, &config, &cache, &aliases)
+        }
         Command::Sources => cmd_sources(&config, &cache, format),
         Command::Refresh => {
             cache.clear()?;
@@ -175,7 +185,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn fetch_all(config: &Config, cache: &Cache) -> Vec<models::SourceResult> {
+pub fn fetch_all(config: &Config, cache: &Cache) -> Vec<models::SourceResult> {
     let srcs = get_sources();
     srcs.iter()
         .map(|s| match s.fetch(config, cache) {
