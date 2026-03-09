@@ -3,6 +3,7 @@ pub mod aider;
 pub mod arena;
 pub mod livebench;
 pub mod mock;
+pub mod openrouter;
 pub mod seal;
 pub mod swebench;
 pub mod swebench_r;
@@ -30,6 +31,7 @@ pub fn all_sources() -> Vec<Box<dyn Source>> {
         Box::new(tbench::TerminalBench),
         Box::new(seal::Seal),
         Box::new(swebench_r::SweRebench),
+        Box::new(openrouter::OpenRouter),
     ]
 }
 
