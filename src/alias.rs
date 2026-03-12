@@ -134,6 +134,7 @@ impl AliasMap {
     /// Allowed suffixes:
     ///   `(` or ` ` — parenthetical qualifier, e.g. `claude-opus-4.5 (reasoning)` → ok
     ///   `-` followed by a digit — date/version suffix, e.g. `gpt-5.2-2025-04-16` → ok
+    ///   `-(` — effort/thinking qualifier, e.g. `claude-opus-4.6-(max)` → ok
     ///   `-` followed by a letter — model variant, e.g. `o3-pro`, `o3-mini` → NOT ok
     ///
     /// The letter-after-hyphen rule prevents short names like `o3` from swallowing
@@ -148,12 +149,13 @@ impl AliasMap {
                 let allowed = match next_char {
                     b'(' | b' ' => true,
                     b'-' => {
-                        // Only allow if the char after the hyphen is a digit
-                        // (date/version suffix), not a letter (model variant)
+                        // Allow date/version suffixes and effort-style qualifiers
+                        // like "-(max)", but still reject model variants like
+                        // "-pro" or "-mini".
                         lower_name
                             .as_bytes()
                             .get(alias.len() + 1)
-                            .is_some_and(|c| c.is_ascii_digit())
+                            .is_some_and(|c| c.is_ascii_digit() || *c == b'(')
                     }
                     _ => false,
                 };
@@ -235,6 +237,23 @@ aliases = ["GPT-5.2", "gpt-5.2-chat-latest"]
         // "gpt-5.2-chat-latest-20260210" — "gpt-5.2-chat-latest" is in aliases,
         // then "-20260210" is a digit suffix → resolves via alias+prefix
         assert_eq!(map().resolve("gpt-5.2-chat-latest-20260210"), "gpt-5.2");
+    }
+
+    #[test]
+    fn hyphen_paren_suffix_resolves() {
+        // "claude-opus-4.6-(max)" — '-' then '(' should prefix-match "claude-opus-4.6"
+        // This tests the AA effort-variant naming pattern
+        assert_eq!(
+            AliasMap::from_toml(
+                r#"
+[claude_opus_46]
+canonical = "claude-opus-4.6"
+aliases = ["claude-opus-4-6"]
+"#
+            )
+            .resolve("claude-opus-4.6-(max)"),
+            "claude-opus-4.6"
+        );
     }
 
     // --- Hyphen + letter: NOT allowed (model variant) ---
