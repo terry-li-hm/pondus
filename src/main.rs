@@ -4,6 +4,7 @@ mod config;
 mod models;
 mod monitor;
 mod output;
+mod recommend;
 mod sources;
 
 use alias::{AliasMap, MatchKind};
@@ -17,6 +18,7 @@ use models::{
 };
 use monitor::MonitorCommand;
 use output::OutputFormat;
+use recommend::RecommendTask;
 use sources::Source;
 use sources::aa::{AaEffortFilter, classify_effort_level};
 use std::cmp::Ordering;
@@ -114,6 +116,20 @@ enum Command {
     Sources,
     /// Force re-fetch all sources (clears cache)
     Refresh,
+    /// Recommend models for a task type
+    Recommend {
+        /// Task type to recommend for
+        task: Option<RecommendTask>,
+        /// Print available task types with descriptions
+        #[arg(long)]
+        list_tasks: bool,
+        /// Show top N models
+        #[arg(long, default_value_t = 5)]
+        top: usize,
+        /// Filter AA results by reasoning effort level when relevant
+        #[arg(long, value_enum, default_value_t = AaEffortFilter::All)]
+        effort: AaEffortFilter,
+    },
 }
 
 fn main() -> Result<()> {
@@ -205,6 +221,24 @@ fn main() -> Result<()> {
                 false,
                 AaEffortFilter::All,
             )
+        }
+        Command::Recommend {
+            task,
+            list_tasks,
+            top,
+            effort,
+        } => {
+            if list_tasks {
+                println!("{}", recommend::list_tasks(format)?);
+                Ok(())
+            } else {
+                let task = task.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "recommend requires a task. Use one of: coding, agentic, intelligence, general, cost"
+                    )
+                })?;
+                recommend::run(&config, &cache, &aliases, task, top, effort, format)
+            }
         }
     }
 }
