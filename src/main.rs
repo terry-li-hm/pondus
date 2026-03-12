@@ -18,6 +18,7 @@ use models::{
 use monitor::MonitorCommand;
 use output::OutputFormat;
 use sources::Source;
+use sources::aa::{AaEffortFilter, classify_effort_level};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::thread;
@@ -72,6 +73,9 @@ enum Command {
         /// Show data age for each source in rank output
         #[arg(long)]
         show_freshness: bool,
+        /// Filter AA results by reasoning effort level
+        #[arg(long, value_enum, default_value_t = AaEffortFilter::All)]
+        effort: AaEffortFilter,
     },
     /// Check a single model across all sources
     Check {
@@ -86,6 +90,9 @@ enum Command {
         model1: String,
         /// Second model
         model2: String,
+        /// Filter AA results by reasoning effort level
+        #[arg(long, value_enum, default_value_t = AaEffortFilter::All)]
+        effort: AaEffortFilter,
     },
     /// Watch a model across all sources until all have data
     Watch {
@@ -130,6 +137,7 @@ fn main() -> Result<()> {
         show_excluded: false,
         max_age: None,
         show_freshness: false,
+        effort: AaEffortFilter::All,
     });
 
     match command {
@@ -143,6 +151,7 @@ fn main() -> Result<()> {
             show_excluded,
             max_age,
             show_freshness,
+            effort,
         } => cmd_rank(
             &config,
             &cache,
@@ -157,14 +166,17 @@ fn main() -> Result<()> {
             show_excluded,
             max_age,
             show_freshness,
+            effort,
         ),
         Command::Check {
             model,
             show_matches,
         } => cmd_check(&config, &cache, &aliases, format, &model, show_matches),
-        Command::Compare { model1, model2 } => {
-            cmd_compare(&config, &cache, &aliases, format, &model1, &model2)
-        }
+        Command::Compare {
+            model1,
+            model2,
+            effort,
+        } => cmd_compare(&config, &cache, &aliases, format, &model1, &model2, effort),
         Command::Watch {
             model,
             interval,
@@ -178,8 +190,20 @@ fn main() -> Result<()> {
             cache.clear()?;
             eprintln!("Cache cleared. Re-fetching all sources...");
             cmd_rank(
-                &config, &cache, &aliases, format, None, None, None, None, false, None, false,
-                None, false,
+                &config,
+                &cache,
+                &aliases,
+                format,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+                None,
+                false,
+                AaEffortFilter::All,
             )
         }
     }
@@ -256,6 +280,7 @@ fn cmd_rank(
     show_excluded: bool,
     max_age: Option<u64>,
     show_freshness: bool,
+    effort: AaEffortFilter,
 ) -> Result<()> {
     let mut results = fetch_all(config, cache);
     let now = Utc::now();
@@ -342,9 +367,14 @@ fn cmd_rank(
     }
 
     // LiveBench dataset has been frozen since April 2025 — always warn when it's in scope
-    if results.iter().any(|r| r.source == "livebench" && !r.scores.is_empty()) {
+    if results
+        .iter()
+        .any(|r| r.source == "livebench" && !r.scores.is_empty())
+    {
         eprintln!("[livebench] dataset frozen since April 2025 — scores are stale");
     }
+
+    apply_aa_effort_filter(&mut results, effort);
 
     if aggregate {
         let threshold = min_sources.unwrap_or(2);
@@ -353,7 +383,8 @@ fn cmd_rank(
         } else {
             excluded_models(results.as_slice(), threshold)
         };
-        let (mut aggregated, excluded_models) = aggregate_results(results, threshold, show_excluded);
+        let (mut aggregated, excluded_models) =
+            aggregate_results(results, threshold, show_excluded);
         let excluded_models = if show_excluded {
             excluded_models
         } else {
@@ -455,22 +486,24 @@ fn aggregate_results(
     let scores = rows
         .into_iter()
         .enumerate()
-        .map(|(i, (model, avg_percentile, spread, sources_count))| ModelScore {
-            model: model.clone(),
-            source_model_name: model,
-            metrics: HashMap::from([
-                (
-                    "avg_percentile".to_string(),
-                    MetricValue::Float(avg_percentile),
-                ),
-                ("spread".to_string(), MetricValue::Float(spread)),
-                (
-                    "sources_count".to_string(),
-                    MetricValue::Int(sources_count as i64),
-                ),
-            ]),
-            rank: Some((i + 1) as u32),
-        })
+        .map(
+            |(i, (model, avg_percentile, spread, sources_count))| ModelScore {
+                model: model.clone(),
+                source_model_name: model,
+                metrics: HashMap::from([
+                    (
+                        "avg_percentile".to_string(),
+                        MetricValue::Float(avg_percentile),
+                    ),
+                    ("spread".to_string(), MetricValue::Float(spread)),
+                    (
+                        "sources_count".to_string(),
+                        MetricValue::Int(sources_count as i64),
+                    ),
+                ]),
+                rank: Some((i + 1) as u32),
+            },
+        )
         .collect();
 
     (
@@ -693,10 +726,12 @@ fn cmd_compare(
     format: OutputFormat,
     model1: &str,
     model2: &str,
+    effort: AaEffortFilter,
 ) -> Result<()> {
     let c1 = aliases.resolve(model1);
     let c2 = aliases.resolve(model2);
-    let results = fetch_all(config, cache);
+    let mut results = fetch_all(config, cache);
+    apply_aa_effort_filter(&mut results, effort);
 
     let filtered: Vec<_> = results
         .into_iter()
@@ -723,6 +758,22 @@ fn cmd_compare(
 
     println!("{}", output::render(&output, format)?);
     Ok(())
+}
+
+fn apply_aa_effort_filter(results: &mut [SourceResult], effort: AaEffortFilter) {
+    if effort == AaEffortFilter::All {
+        return;
+    }
+
+    for result in results.iter_mut() {
+        if result.source != "artificial-analysis" {
+            continue;
+        }
+
+        result
+            .scores
+            .retain(|score| effort.matches(classify_effort_level(&score.source_model_name)));
+    }
 }
 
 fn cmd_sources(config: &Config, cache: &Cache, format: OutputFormat) -> Result<()> {
@@ -758,12 +809,17 @@ fn cmd_sources(config: &Config, cache: &Cache, format: OutputFormat) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::{
-        aggregate_results, parse_source_tag, percentile, std_dev, MetricValue, ModelScore,
-        SourceResult, SourceStatus, SourceTag,
+        MetricValue, ModelScore, SourceResult, SourceStatus, SourceTag, aggregate_results,
+        parse_source_tag, percentile, std_dev,
     };
     use std::collections::HashMap;
 
-    fn make_source_with_ranked_model(source: &str, model: &str, rank: u32, total: usize) -> SourceResult {
+    fn make_source_with_ranked_model(
+        source: &str,
+        model: &str,
+        rank: u32,
+        total: usize,
+    ) -> SourceResult {
         let mut scores = Vec::with_capacity(total);
         scores.push(ModelScore {
             model: model.to_string(),
@@ -773,7 +829,11 @@ mod tests {
         });
 
         for i in 1..total {
-            let filler_rank = if i as u32 >= rank { i as u32 + 1 } else { i as u32 };
+            let filler_rank = if i as u32 >= rank {
+                i as u32 + 1
+            } else {
+                i as u32
+            };
             scores.push(ModelScore {
                 model: format!("filler-{source}-{i}"),
                 source_model_name: format!("filler-{source}-{i}"),
@@ -910,9 +970,18 @@ mod tests {
             parse_source_tag("reasoning"),
             Some(SourceTag::Reasoning)
         ));
-        assert!(matches!(parse_source_tag("coding"), Some(SourceTag::Coding)));
-        assert!(matches!(parse_source_tag("agentic"), Some(SourceTag::Agentic)));
-        assert!(matches!(parse_source_tag("general"), Some(SourceTag::General)));
+        assert!(matches!(
+            parse_source_tag("coding"),
+            Some(SourceTag::Coding)
+        ));
+        assert!(matches!(
+            parse_source_tag("agentic"),
+            Some(SourceTag::Agentic)
+        ));
+        assert!(matches!(
+            parse_source_tag("general"),
+            Some(SourceTag::General)
+        ));
         assert!(matches!(
             parse_source_tag("REASONING"),
             Some(SourceTag::Reasoning)

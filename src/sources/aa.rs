@@ -4,6 +4,7 @@ use crate::models::{MetricValue, ModelScore, SourceResult, SourceStatus, SourceT
 use crate::sources::Source;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use clap::ValueEnum;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
@@ -11,6 +12,53 @@ use std::time::Duration;
 
 pub struct ArtificialAnalysis;
 static TAGS: &[SourceTag] = &[SourceTag::Reasoning, SourceTag::General];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AaEffort {
+    Max,
+    Standard,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AaEffortFilter {
+    Max,
+    Standard,
+    Low,
+    All,
+}
+
+impl Default for AaEffortFilter {
+    fn default() -> Self {
+        Self::All
+    }
+}
+
+impl AaEffortFilter {
+    pub fn matches(self, effort: AaEffort) -> bool {
+        match self {
+            Self::All => true,
+            Self::Max => effort == AaEffort::Max,
+            Self::Standard => effort == AaEffort::Standard,
+            Self::Low => effort == AaEffort::Low,
+        }
+    }
+}
+
+pub fn classify_effort_level(model_name: &str) -> AaEffort {
+    let normalized = model_name.to_lowercase();
+
+    if normalized.contains("(max)") || normalized.contains("adaptive") {
+        AaEffort::Max
+    } else if normalized.contains("low-effort")
+        || normalized.contains("low effort")
+        || normalized.contains("(low)")
+    {
+        AaEffort::Low
+    } else {
+        AaEffort::Standard
+    }
+}
 
 impl Source for ArtificialAnalysis {
     fn name(&self) -> &str {
@@ -349,4 +397,44 @@ fn extract_cell_value(line: &str) -> Option<String> {
     let start = line.find('"')? + 1;
     let end = line[start..].find('"')? + start;
     Some(line[start..end].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AaEffort, classify_effort_level};
+
+    #[test]
+    fn classify_effort_level_detects_max_variants() {
+        assert_eq!(classify_effort_level("Claude 4.5 (Max)"), AaEffort::Max);
+        assert_eq!(
+            classify_effort_level("o3 adaptive reasoning"),
+            AaEffort::Max
+        );
+    }
+
+    #[test]
+    fn classify_effort_level_detects_low_variants() {
+        assert_eq!(
+            classify_effort_level("Gemini 2.5 Pro (non-reasoning,-low-effort)"),
+            AaEffort::Low
+        );
+        assert_eq!(
+            classify_effort_level("Gemini 2.5 Pro low-effort"),
+            AaEffort::Low
+        );
+        assert_eq!(
+            classify_effort_level("Claude Sonnet 4.6 (Non-reasoning, Low Effort)"),
+            AaEffort::Low
+        );
+        assert_eq!(classify_effort_level("Gemini 3 Pro (low)"), AaEffort::Low);
+    }
+
+    #[test]
+    fn classify_effort_level_defaults_to_standard() {
+        assert_eq!(
+            classify_effort_level("Claude 4.5 non-reasoning"),
+            AaEffort::Standard
+        );
+        assert_eq!(classify_effort_level("Claude 4.5"), AaEffort::Standard);
+    }
 }

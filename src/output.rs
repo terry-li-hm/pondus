@@ -1,4 +1,5 @@
 use crate::models::{MetricValue, PondusOutput, SourceStatus};
+use crate::sources::aa::{AaEffort, classify_effort_level};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use owo_colors::OwoColorize;
@@ -128,6 +129,13 @@ fn render_table(output: &PondusOutput) -> Result<String> {
                 .join("  ");
             result.push_str(&line);
             result.push('\n');
+        }
+
+        if source.source == "artificial-analysis" && aa_has_mixed_effort_variants(source) {
+            result.push('\n');
+            result.push_str(
+                "  AA effort: (max) = Adaptive Reasoning Max Effort · standard = Non-reasoning High Effort · (low) = Non-reasoning Low Effort\n",
+            );
         }
 
         result.push('\n');
@@ -331,4 +339,14 @@ fn format_cached_age(fetched_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> S
 
 fn pad(s: &str, width: usize) -> String {
     format!("{:width$}", s, width = width)
+}
+
+fn aa_has_mixed_effort_variants(source: &crate::models::SourceResult) -> bool {
+    source
+        .scores
+        .iter()
+        .map(|score| classify_effort_level(&score.source_model_name))
+        .collect::<HashSet<AaEffort>>()
+        .len()
+        > 1
 }
