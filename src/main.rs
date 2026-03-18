@@ -25,6 +25,12 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::thread;
 
+/// The month LiveBench last published new data. Update this const whenever the
+/// dataset is refreshed — the staleness warning below is derived from it so
+/// that a stale string can never accumulate silently.
+/// Format: (year, month) in UTC.
+const LIVEBENCH_FROZEN_SINCE: (i32, u32) = (2025, 4); // April 2025
+
 #[derive(Parser)]
 #[command(
     name = "pondus",
@@ -400,12 +406,20 @@ fn cmd_rank(
         }
     }
 
-    // LiveBench dataset has been frozen since April 2025 — always warn when it's in scope
+    // LiveBench dataset has been frozen since LIVEBENCH_FROZEN_SINCE — always warn when it's in
+    // scope. To silence: update LIVEBENCH_FROZEN_SINCE to the new refresh date.
     if results
         .iter()
         .any(|r| r.source == "livebench" && !r.scores.is_empty())
     {
-        eprintln!("[livebench] dataset frozen since April 2025 — scores are stale");
+        let month_name = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ][(LIVEBENCH_FROZEN_SINCE.1 as usize).saturating_sub(1).min(11)];
+        eprintln!(
+            "[livebench] dataset frozen since {} {} — scores are stale",
+            month_name, LIVEBENCH_FROZEN_SINCE.0
+        );
     }
 
     apply_aa_effort_filter(&mut results, effort);
