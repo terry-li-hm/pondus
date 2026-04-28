@@ -348,9 +348,16 @@ fn parse_scores_from_text(text: &str) -> Vec<(String, f64)> {
     while i < lines.len() {
         let trimmed = lines[i].trim();
 
-        // Look for data row lines (skip header rows)
-        if trimmed.starts_with("- row \"") && trimmed.contains("Model Providers") {
-            // Collect cells from subsequent lines
+        // AA's accessibility tree (Apr 2026 layout) emits a bare `- row`
+        // line followed by indented `- cell "..."` entries. Older layouts
+        // wrapped row text into `- row "Model Name ..."` with a "Model
+        // Providers" substring; both shapes are accepted here so the
+        // parser is resilient if AA reverts.
+        let is_data_row = trimmed == "- row"
+            || (trimmed.starts_with("- row \"") && trimmed.contains("Model Providers"));
+
+        if is_data_row {
+            // Collect cells from subsequent lines until the next row marker.
             let mut cells: Vec<String> = Vec::new();
             let mut j = i + 1;
             while j < lines.len() {
@@ -359,7 +366,7 @@ fn parse_scores_from_text(text: &str) -> Vec<(String, f64)> {
                     if let Some(val) = extract_cell_value(cell_line) {
                         cells.push(val);
                     }
-                } else if cell_line.starts_with("- row ") {
+                } else if cell_line == "- row" || cell_line.starts_with("- row ") {
                     break;
                 }
                 j += 1;
